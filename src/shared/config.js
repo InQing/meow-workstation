@@ -68,6 +68,42 @@
 
     catGrid: 24, // 猫咪像素网格 24×24
 
+    /* 桌宠状态清单（像素猫 / 图片桌宠 / 面板槽位 / 调试菜单共用一份） */
+    petStates: {
+      sustain: ['idle', 'sleep', 'work'],                    // 持续态（setBase）
+      once: ['happy', 'shock', 'annoyed', 'eat', 'stretch'], // 单次态（播完回持续态）
+      timed: ['belly'],                                      // 定时态（playFor(ms) 手动定时）
+      // 图片桌宠没有帧：单次态用这个时长兜结束回调（对齐像素猫实测总时长）
+      onceMs: { happy: 880, shock: 600, annoyed: 1600, eat: 840, stretch: 1400 },
+    },
+
+    /* 图片桌宠的图片槽位：default 必传，其余 9 个状态可空（空则回落 default） */
+    petSlots: {
+      order: ['default', 'idle', 'sleep', 'work', 'happy', 'shock', 'annoyed', 'eat', 'stretch', 'belly'],
+      labels: {
+        default: '默认形象', idle: '待机', sleep: '打盹', work: '专注',
+        happy: '开心', shock: '炸毛', annoyed: '嫌弃', eat: '干饭',
+        stretch: '伸懒腰', belly: '翻肚皮',
+      },
+    },
+
+    /* 图片桌宠导入归一化（主进程 nativeImage 用） */
+    imagePet: {
+      maxSide: 1024,   // 超过则等比缩小（不放大）
+      minSide: 96,     // 小于此边长直接拒绝（放大会糊）
+      thumbSide: 128,  // 面板列表 / 槽位缩略图边长
+      traySide: 32,    // 托盘图标边长
+    },
+
+    /* 内置像素猫（面板「桌宠」页 / 主进程调试菜单共用） */
+    builtinCats: [
+      { id: 'orange', name: '橘猫' },
+      { id: 'cow', name: '奶牛猫' },
+      { id: 'black', name: '黑猫' },
+      { id: 'calico', name: '三花猫' },
+      { id: 'tabby', name: '狸花猫' },
+    ],
+
     // 番茄钟
     pomodoro: {
       workMin: 25,

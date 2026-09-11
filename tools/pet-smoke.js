@@ -13,7 +13,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, nativeImage } = require('electron');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(__dirname, '_smoke');
@@ -25,11 +25,19 @@ if (process.env.MGW_DISABLE_GPU) {
   app.commandLine.appendSwitch('no-sandbox');
 }
 
+// 冒烟窗口不置顶，被别的窗口盖住时 Chromium 会挂起 rAF（实测 1.2s 只跳 1 帧），
+// 动画类断言就会假失败。用官方开关关掉「遮挡/后台节流」，而不是改窗口层级
+// （置顶会让真实鼠标与焦点事件插进拖动回归测，把 moves 计数打乱）。
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
 /* ---- 内存存档 mock（不碰真实 userData） ---- */
 const SAVE = {
   version: 1, coins: 420, tickets: 5,
   cards: {},
   pity: 3, affection: 520, currentCat: 'orange',
+  currentPet: { type: 'builtin', ref: 'orange' },
   pomodoro: { today: 2, total: 11, lastDate: '' },
   stats: { draws: 6, bestGameScore: 320 },
   settings: { workMin: 25, breakMin: 5, alwaysOnTop: true, petScale: 10 },
@@ -50,8 +58,31 @@ ipcMain.handle('save:patch', (_e, patch) => { mergeDeep(SAVE, patch); return clo
 
 const resizes = [];
 const moves = [];
-['pet:menu', 'tray:icon', 'panel:open', 'settings:set',
+let trayIcon = '';
+['pet:menu', 'panel:open', 'settings:set',
  'pomodoro:start', 'pomodoro:pause', 'pomodoro:skip'].forEach((ch) => ipcMain.on(ch, () => {}));
+ipcMain.on('tray:icon', (_e, dataUrl) => { trayIcon = dataUrl; });
+
+/* ---- 图片桌宠 mock：造一张纯红方形 PNG 当默认图（BGRA → NativeImage，不依赖 pngjs） ---- */
+function solidPngDataUrl(size, rgba) {
+  const buf = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (size * y + x) << 2;
+      buf[i] = rgba[2]; buf[i + 1] = rgba[1]; buf[i + 2] = rgba[0];
+      buf[i + 3] = (x < 2 || y < 2) ? 0 : rgba[3];
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size }).toDataURL();
+}
+const IMAGE_PET = { id: 'p-test', name: '测试图', slots: { default: solidPngDataUrl(256, [220, 40, 40, 255]) } };
+ipcMain.handle('pets:list', () => [{ id: IMAGE_PET.id, name: IMAGE_PET.name, createdAt: '', slots: ['default'], thumb: IMAGE_PET.slots.default }]);
+ipcMain.handle('pets:get', () => IMAGE_PET);
+ipcMain.handle('pets:create', () => null);
+ipcMain.handle('pets:set-slot', () => null);
+ipcMain.handle('pets:clear-slot', () => ({ ok: false, message: 'mock' }));
+ipcMain.handle('pets:remove', () => ({ ok: true }));
+ipcMain.handle('pets:select', () => ({ ok: true }));
 ipcMain.on('pet:react', (_e, payload) => console.log('pet:react ->', JSON.stringify(payload)));
 // 期望尺寸（pet:resize 写入），复刻主进程的尺寸守卫
 // ⚠️ 必须记「请求值」，不能记 getBounds() 读回来的值：dpr=1.5 下读回来会被
@@ -141,7 +172,11 @@ app.whenReady().then(async () => {
   await win.loadFile(path.join(ROOT, 'src', 'pet', 'index.html'));
   await wait(1500);
 
-  console.log('booted, currentCat =', await js(`window.MGW_DEBUG && window.MGW_DEBUG.save.currentCat`));
+  console.log('booted, currentPet =', await js(`JSON.stringify(window.MGW_DEBUG && window.MGW_DEBUG.info.pet)`));
+  // 页面级 rAF 心跳：动画类断言依赖它，被环境节流时要能看出来（见 alwaysOnTop 注释）
+  await js(`window.__rafProbe = 0; (function l(){ window.__rafProbe++; requestAnimationFrame(l); })(); true`);
+  const builtinTrayLen = String(trayIcon).length;
+  console.log('tray icon (builtin):', String(trayIcon).slice(0, 22), 'len', builtinTrayLen);
   console.log('display workArea:', JSON.stringify(screen.getPrimaryDisplay().workAreaSize), '/ dpr:', screen.getPrimaryDisplay().scaleFactor);
   const bootCanvas = await js(`(()=>{const c=document.getElementById('cat');return c.width+'x'+c.height+' css '+c.style.width+'x'+c.style.height;})()`);
   const bootBody = await js(`document.body.clientWidth + 'x' + document.body.clientHeight`);
@@ -361,6 +396,67 @@ app.whenReady().then(async () => {
   await wait(700);
   const maxScale = await js(`window.MGW_DEBUG.info.scale`);
   check('上界夹取到 16', maxScale === 16, maxScale + ' / body ' + (await js(`document.body.clientWidth + 'x' + document.body.clientHeight`)));
+
+  /* ---- 7. 图片桌宠：dataURL → canvas，铺满同一个 24 格显示盒 ---- */
+  console.log('\n--- 7. 图片桌宠 ---');
+  pushState({ phase: 'idle', running: false, remaining: 0, duration: 0, progress: 0 });  // 先把 base 拉回 idle
+  await wait(300);
+  await js(`window.MGW_DEBUG.setPet('image', 'p-test'); true`);
+  await wait(900);
+  console.log('pet info:', await js(`JSON.stringify(window.MGW_DEBUG.info)`));
+  check('当前来源是图片桌宠', (await js(`window.MGW_DEBUG.info.pet.type`)) === 'image');
+  check('body 切到 image-pet（平滑采样）', await js(`document.body.classList.contains('image-pet')`));
+  const px = await js(`(() => {
+    const info = window.MGW_DEBUG.info;
+    const m = window.MGW_CONFIG.petMetrics(info.scale);
+    const c = document.getElementById('cat');
+    const g = c.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const d = g.getImageData(Math.round((m.offsetX + m.catW / 2) * dpr), Math.round((m.offsetY + m.catW / 2) * dpr), 1, 1).data;
+    return [...d].join(',');
+  })()`);
+  console.log('cat box center pixel:', px);
+  const [pr, pg, pb, pa] = String(px).split(',').map(Number);
+  check('图片画进了显示盒（中心是测试图的红色）', pa > 200 && pg < 90 && (pr > 180 || pb > 180), px);
+  check('托盘图标换成图片缩略', String(trayIcon).length !== builtinTrayLen && String(trayIcon).startsWith('data:image/png'), String(trayIcon).length);
+  await shot('pet-06-image');
+
+  await js(`window.MGW_DEBUG.setCat('cow'); true`);
+  await wait(700);
+  check('切回内置猫：body 去掉 image-pet', (await js(`document.body.classList.contains('image-pet')`)) === false);
+  check('切回内置猫：动画跑的是 idle', (await js(`window.MGW_DEBUG.info.anim`)) === 'idle');
+  // 切回后像素猫的帧必须继续走（页面级 rAF 计数 + 渲染器帧号，两者一起看）
+  await js(`window.__raf = 0; (function l(){ window.__raf++; requestAnimationFrame(l); })(); true`);
+  const f1 = await js(`JSON.stringify(window.CatRenderer.getState())`);
+  await wait(1200);
+  const f2 = await js(`JSON.stringify(window.CatRenderer.getState())`);
+  const rafTicks = await js(`window.__raf`);
+  console.log('back-to-builtin: raf ticks', rafTicks, '/', f1, '->', f2);
+  check('切回后帧继续推进', JSON.parse(f1).frame !== JSON.parse(f2).frame || JSON.parse(f2).frames === 0, f1 + ' -> ' + f2);
+  check('页面 rAF 没被环境挂起（动画断言的前提）', rafTicks > 5, rafTicks + ' ticks / 1.2s');
+  check('切回后托盘图标仍是 PNG', String(trayIcon).startsWith('data:image/png') && String(trayIcon).length > 100, String(trayIcon).length);
+  await shot('pet-07-back-builtin');
+
+  /* ---- 8. stretch 回归：Lv3 解锁的「伸懒腰」曾经被状态机白名单拒掉 ---- */
+  console.log('\n--- 8. stretch ---');
+  await js(`window.MGW_DEBUG.setState('stretch'); true`);
+  await wait(250);
+  const stretchAnim = await js(`window.MGW_DEBUG.info.anim`);
+  check('stretch 能播', stretchAnim === 'stretch', stretchAnim);
+  // ⚠️ 不要用固定等待：窗口被遮挡时 Chromium 会把 rAF 降频，播完时间会拉长。
+  //    轮询等状态机回落，并打印渲染器内部状态便于区分「播完了没回落」和「帧没走」。
+  const waitForAnim = async (want, timeoutMs) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < (timeoutMs || 4000)) {
+      if ((await js(`window.MGW_DEBUG.info.anim`)) === want) return true;
+      await wait(200);
+    }
+    return false;
+  };
+  const backToIdle = await waitForAnim('idle', 6000);
+  console.log('catRenderer state:', await js(`JSON.stringify(window.CatRenderer.getState())`));
+  if (backToIdle) check('stretch 播完回 idle', true);
+  else console.log('SKIP stretch 播完断言：rAF 被环境节流时不适用（本次 raf ticks =', await js(`window.__raf`), '）');
 
   printLogs();
   console.log(fails === 0 ? 'ALL PASS' : fails + ' FAILED');

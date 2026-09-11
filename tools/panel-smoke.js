@@ -6,7 +6,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage } = require('electron');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(__dirname, '_smoke');
@@ -18,11 +18,18 @@ if (process.env.MGW_DISABLE_GPU) {
   app.commandLine.appendSwitch('no-sandbox');
 }
 
+// 窗口被遮挡时 Chromium 会挂起 rAF / 节流定时器，游戏与动画类断言会假失败。
+// 用官方开关关掉节流，而不是改窗口层级（见 pet-smoke 的同一段注释）。
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
 /* ---- 内存存档 mock（不碰真实 userData） ---- */
 const SAVE = {
   version: 1, coins: 420, tickets: 5,
   cards: { orange_worker: 2, cow_nap: 1, space_cat: 1, aju_cat: 1 },
   pity: 49, affection: 520, currentCat: 'orange',   // pity=49 → 下一抽必出 SSR（验证保底 + 金光）
+  currentPet: { type: 'builtin', ref: 'orange' },
   pomodoro: { today: 2, total: 11, lastDate: '' },
   stats: { draws: 6, bestGameScore: 0 },
   settings: { workMin: 25, breakMin: 5, volume: 0.5, alwaysOnTop: true },
@@ -46,8 +53,43 @@ ipcMain.handle('save:patch', (_e, patch) => { mergeDeep(SAVE, patch); return clo
 const reacts = [];   // 游戏 tab 发给桌宠的反应：{kind, score, best}
 ipcMain.on('pet:react', (_e, payload) => { reacts.push(payload); console.log('pet:react ->', JSON.stringify(payload)); });
 
+/* ---- 图片桌宠 mock：纯红方形 PNG 默认图（BGRA → NativeImage，不依赖 pngjs） ---- */
+function solidPngDataUrl(size, rgba) {
+  const buf = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (size * y + x) << 2;
+      buf[i] = rgba[2]; buf[i + 1] = rgba[1]; buf[i + 2] = rgba[0];
+      buf[i + 3] = (x < 2 || y < 2) ? 0 : rgba[3];
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size }).toDataURL();
+}
+const PET_THUMB = solidPngDataUrl(256, [220, 40, 40, 255]);
+ipcMain.handle('pets:list', () => [{ id: 'p-test', name: '测试图', createdAt: '', slots: ['default'], thumb: PET_THUMB }]);
+ipcMain.handle('pets:get', () => ({ id: 'p-test', name: '测试图', slots: { default: PET_THUMB } }));
+ipcMain.handle('pets:create', () => null);
+ipcMain.handle('pets:set-slot', () => null);
+ipcMain.handle('pets:clear-slot', () => ({ ok: false, message: 'mock' }));
+let renamed = null;
+ipcMain.handle('pets:rename', (_e, id, name) => {
+  renamed = { id, name };
+  return { ok: true, pet: { id, name: String(name).trim(), createdAt: '', slots: ['default'] } };
+});
+ipcMain.handle('pets:remove', () => ({ ok: true }));
+ipcMain.handle('pets:select', (_e, src) => {
+  if (src && src.type && src.ref) SAVE.currentPet = { type: src.type, ref: src.ref };  // 复刻主进程：切换即写档
+  return { ok: true };
+});
+
 const logs = [];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let fails = 0;
+function check(name, ok, extra) {
+  if (!ok) fails++;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${extra != null ? '  → ' + extra : ''}`);
+}
 
 let win = null;
 
@@ -134,6 +176,52 @@ app.whenReady().then(async () => {
   console.log('audio row:', await js(`(document.querySelector('.page[data-page="settings"] .static-val')||{}).textContent || 'MISSING'`));
   console.log('volume sliders left:', await js(`document.querySelectorAll('.page[data-page="settings"] input[type="range"]').length`));
   await shot('05-settings');
+
+  /* ---- 桌宠 tab：内置猫 + 图片桌宠 + 10 个槽位 ---- */
+  await js(`document.querySelector('.nav-btn[data-tab="pets"]').click(); true`);
+  await wait(700);
+  console.log('pets builtin cards:', await js(`document.querySelectorAll('.page[data-page="pets"] .pet-card').length`));
+  console.log('pets custom thumbs:', await js(`document.querySelectorAll('.page[data-page="pets"] .pet-card img').length`));
+  check('画像桌宠卡片与上传按钮都在', await js(`!!document.querySelector('.page[data-page="pets"] .pet-add')`));
+  await shot('20-pets');
+  console.log('open custom pet:', await js(`(() => {
+    const c = [...document.querySelectorAll('.page[data-page="pets"] .pet-card')].find((e) => e.querySelector('img'));
+    if (!c) return 'no-custom';
+    c.click();
+    return 'clicked';
+  })()`));
+  await wait(800);
+  console.log('slot cards:', await js(`document.querySelectorAll('.page[data-page="pets"] .slot-card').length`));
+  console.log('slot labels:', await js(`[...document.querySelectorAll('.page[data-page="pets"] .slot-card .pname')].map((e) => e.textContent).join('/')`));
+  check('槽位 = 10（默认形象 + 9 状态）', (await js(`document.querySelectorAll('.page[data-page="pets"] .slot-card').length`)) === 10);
+  check('默认形象只有「上传/替换」（不可清）', (await js(`document.querySelectorAll('.page[data-page="pets"] .slot-card')[0].querySelectorAll('.slot-actions .btn').length`)) === 1);
+  check('其余状态有「上传 + 清除」两个按钮', (await js(`document.querySelectorAll('.page[data-page="pets"] .slot-card')[1].querySelectorAll('.slot-actions .btn').length`)) === 2);
+  check('点图片卡片 → 存档切成图片桌宠', SAVE.currentPet.type === 'image' && SAVE.currentPet.ref === 'p-test', JSON.stringify(SAVE.currentPet));
+  await shot('21-pets-slots');
+  console.log('save.currentPet now:', JSON.stringify(SAVE.currentPet));
+
+  /* ---- 改名：只有图片桌宠有（内置猫卡上没有按钮） ---- */
+  console.log('rename btn on custom card:', await js(`(() => {
+    const c = [...document.querySelectorAll('.page[data-page="pets"] .pet-card')].find((e) => e.querySelector('img'));
+    const b = c && c.querySelector('.pbtn');
+    if (!b) return 'no-btn';
+    b.click();
+    return b.textContent;
+  })()`));
+  await wait(300);
+  console.log('rename sheet input:', await js(`(() => {
+    const i = document.querySelector('#sheet input[type="text"]');
+    return i ? JSON.stringify({ value: i.value, open: !document.getElementById('overlay').classList.contains('hidden') }) : 'no-input';
+  })()`));
+  check('改名弹层打开且预填当前名字', (await js(`(() => { const i = document.querySelector('#sheet input[type="text"]'); return !!i && i.value === '测试图'; })()`)));
+  await shot('22-pets-rename');
+  await js(`(() => { const i = document.querySelector('#sheet input[type="text"]'); i.value = '橘座'; return true; })()`);
+  await js(`document.querySelector('#sheet .btn.primary').click(); true`);
+  await wait(500);
+  check('保存把新名字发给主进程', !!renamed && renamed.id === 'p-test' && renamed.name === '橘座', JSON.stringify(renamed));
+  check('保存后弹层关闭', await js(`document.getElementById('overlay').classList.contains('hidden')`));
+  console.log('builtin card buttons (应为 0):', await js(`[...document.querySelectorAll('.page[data-page="pets"] .pet-card')].filter((c) => c.querySelector('canvas')).reduce((n, c) => n + c.querySelectorAll('.pbtn').length, 0)`));
+  check('内置猫不可改名', (await js(`[...document.querySelectorAll('.page[data-page="pets"] .pet-card')].filter((c) => c.querySelector('canvas')).reduce((n, c) => n + c.querySelectorAll('.pbtn').length, 0)`)) === 0);
 
   /* ---- 游戏 tab：现在是「游戏中心」列表页，先选游戏再进 ---- */
   /** 从游戏列表点进某个游戏（按卡片标题匹配） */
@@ -346,5 +434,6 @@ app.whenReady().then(async () => {
 
   console.log('pet reactions:', JSON.stringify(reacts));
   printLogs();
-  app.quit();
+  console.log(fails === 0 ? 'ALL PASS' : fails + ' FAILED');
+  app.exit(fails === 0 ? 0 : 1);
 }).catch((err) => { console.error('smoke failed:', err); printLogs(); app.exit(2); });

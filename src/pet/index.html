@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:" />
   <title>喵工位 · 桌宠</title>
   <link rel="stylesheet" href="pet.css" />
 </head>
@@ -24,7 +24,9 @@
   <div id="size-tip" class="size-tip hidden"></div>
 
   <script src="../shared/config.js"></script>
+  <script src="../shared/petAssets.js"></script>
   <script src="catRenderer.js"></script>
+  <script src="imageRenderer.js"></script>
   <script src="stateMachine.js"></script>
   <script src="affection.js"></script>
   <script src="dragHandler.js"></script>

@@ -1,6 +1,6 @@
 # 喵工位 · meow-workstation
 
-一只透明的像素猫趴在你桌面上。它不打扰你——你专注，它就在旁边安静地漏沙；你摸鱼，它就陪你玩两局。
+一只透明的猫趴在你桌面上（内置像素猫，或你上传的图片）。它不打扰你——你专注，它就在旁边安静地漏沙；你摸鱼，它就陪你玩两局。
 
 > Electron 桌宠 · 番茄钟 · 好感养成 · 集卡 · 游戏中心  
 > 项目标识 `meow-workstation`（英文）/ `喵工位`（显示名）
@@ -18,6 +18,8 @@ npm install
 npm start
 ```
 
+> **npm 12 注意**：根目录的 `.npmrc` 把 registry 指向 npmmirror —— `package-lock.json` 里的 tarball 主机就是它；主机不一致会被 npm 12 的 `allow-remote=none` 当成 remote 包拒装（`EALLOWREMOTE`）。electron 的安装脚本（下载二进制）已预批在 `package.json` 的 `allowScripts`；**换 electron 大版本后要重新 `npm install-scripts approve electron`**，否则二进制不会下载。
+
 不打包、不安装，`npm start` 就是 `electron .`。首次启动时猫出现在屏幕**右下角**，托盘同时出现一个猫图标。
 
 想让它开机自启，把 `npm start` 做成快捷方式丢进启动目录即可（自带打包在[计划](docs/ROADMAP.md)里）。
@@ -34,6 +36,15 @@ npm start
 | 单击托盘图标     | 显示 / 隐藏猫                      |
 
 按钮行平时隐藏，鼠标移到猫身上才浮现。摸头摸太勤（1 分钟内超过 5 次）它会嫌弃你，接下来 30 秒不理你。
+
+### 桌宠形象
+
+内置 5 只像素猫；也可以上传你自己的图片当桌宠（面板 →「桌宠」页）：
+
+- 选一张**透明底方形图**（PNG/WebP 最好）：非方形会自动居中裁方，超过 1024px 自动缩小，统一转 PNG 存到 `%APPDATA%\喵工位\pets\`（不进仓库）
+- 一个图片桌宠 = 1 张必传的**默认形象** + 9 个状态槽位（待机 / 打盹 / 专注 / 开心 / 炸毛 / 嫌弃 / 干饭 / 伸懒腰 / 翻肚皮）；某个状态没传图，就自动用默认形象
+- 「我的猫」里的每只都能**改名 / 删除**；内置猫不参与改名（它们的名字是固定的）
+- 图片桌宠是静态的（单张图）；让它动起来（含 GIF）在[后期计划](docs/ROADMAP.md)里
 
 ### 玩法
 
@@ -76,7 +87,8 @@ main.js                 主进程入口：窗口、托盘、菜单、IPC 中枢
 preload.js              契约层：白名单 API → window.mgw（contextIsolation）
 src/
   shared/               纯逻辑层（UMD，node 可 require 自测）
-    config.js           全局数值表 —— 改数值只改这里
+    config.js           全局数值表 —— 改数值只改这里（含桌宠状态 / 槽位 / 内置猫清单）
+    petAssets.js        图片桌宠纯逻辑：裁方形、校验、来源解析、pet.json 校验
     gacha.js            抽卡：概率、保底、重复转金币
     games/              小游戏逻辑
       fish.js           鱼干突袭（MGW_Fish）
@@ -85,11 +97,13 @@ src/
   main/                 主进程模块
     save.js             存档：深合并 patch、2s 防抖、写前备份、跨天清零
     pomodoro.js         番茄钟：唯一时间源，250ms tick 广播
+    pets.js             图片桌宠仓库：userData/pets/、导入归一化（nativeImage）
   pet/                  桌宠窗口
     index.html
-    pet.js              组装：气泡、沙漏、缩放、IPC 绑定
-    catRenderer.js      画猫：24×24 网格 → Canvas 整数倍缩放
-    stateMachine.js     7 状态机（持续态 / 一次性态）
+    pet.js              组装：气泡、沙漏、缩放、IPC 绑定、桌宠来源分流
+    catRenderer.js      画像素猫：24×24 网格 → Canvas 整数倍缩放
+    imageRenderer.js    画图片桌宠：单图铺满 24 格显示盒（与 catRenderer 同接口）
+    stateMachine.js     状态机（持续态 / 一次性态 / 定时态，清单在 config）
     affection.js        好感与经济：摸头、喂食、等级解锁
     dragHandler.js      拖动（阈值判定，区分点击与拖拽）
     pet.css
@@ -97,7 +111,7 @@ src/
     index.html
     panel-core.js       公共层：MGW_Panel（存档、稀有度、卡面、弹层）
     panel.js            tab 调度
-    tabs/               图鉴 / 抽卡 / 游戏中心 / 设置
+    tabs/               图鉴 / 抽卡 / 桌宠 / 游戏中心 / 设置
     tabs/games/         游戏 UI（fish.js、reflex.js —— 与 shared/games/ 一一对应）
     panel.css
 assets/
@@ -115,7 +129,7 @@ docs/                   架构文档、后期计划
 ```bash
 npm start          # 跑起来
 
-npm test           # 四个纯逻辑层自测（不需要 electron）
+npm test           # 六个纯逻辑层自测（不需要 electron）
 ```
 
 UI 冒烟需要 electron（走真窗、真 DOM，跑完出截图到 `tools/_smoke/`）：
@@ -124,6 +138,7 @@ UI 冒烟需要 electron（走真窗、真 DOM，跑完出截图到 `tools/_smok
 unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/electron.exe tools/panel-smoke.js
 unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/electron.exe tools/pet-smoke.js
 unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/electron.exe tools/win-bounds-drift-probe.js
+unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/electron.exe tools/pets-import-selftest.js
 ```
 
 写新自测时记得加进 `package.json` 的 `test` 脚本，别让它变成没人跑的孤儿。
@@ -145,6 +160,7 @@ unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/ele
 - **数值一律进 `src/shared/config.js`**：不要在业务代码里散落魔法数字，否则没法调、没法测。
 - **`patchSave` 是覆盖语义**：经济变动必须写 `coins: (st.coins || 0) + delta`，不能写 `coins: delta`。
 - **渲染层不能 `require`**：素材一律走主进程 `ipcMain.handle('assets:read')`（路径被限制在 `assets/` 内）。
+- **用户素材不进 `assets/`**：图片桌宠一律存 `userData/pets/`，走 `pets:*` 通道；导入前先过 `shared/petAssets.js` 的校验与归一化计算。
 - **改产品逻辑时同步 grep 冒烟脚本**：`tools/*-smoke.js` 里有 mock 的主进程逻辑和硬编码的期望值，容易漏改，漏了就是「测的和跑的不是一回事」。
 
 ### ⚠️ 禁区

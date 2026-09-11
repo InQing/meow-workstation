@@ -18,6 +18,17 @@ contextBridge.exposeInMainWorld('mgw', {
   /* --- 静态素材：读取 assets/ 下的 JSON（主进程代理，限制在 assets 目录内） --- */
   readJson: (relPath) => ipcRenderer.invoke('assets:read', relPath),
 
+  /* --- 图片桌宠（存 userData/pets/，不进仓库 assets/） --- */
+  petsList: () => ipcRenderer.invoke('pets:list'),
+  petsGet: (id, opts) => ipcRenderer.invoke('pets:get', id, opts),
+  petsCreate: () => ipcRenderer.invoke('pets:create'),
+  petsSetSlot: (id, slot) => ipcRenderer.invoke('pets:set-slot', id, slot),
+  petsClearSlot: (id, slot) => ipcRenderer.invoke('pets:clear-slot', id, slot),
+  petsRename: (id, name) => ipcRenderer.invoke('pets:rename', id, name),
+  petsRemove: (id) => ipcRenderer.invoke('pets:remove', id),
+  petsSelect: (source) => ipcRenderer.invoke('pets:select', source),
+  onPetChanged: (cb) => on('pet:changed', cb),
+
   /* --- 存档 --- */
   loadSave: () => ipcRenderer.invoke('save:load'),
   patchSave: (patch) => ipcRenderer.invoke('save:patch', patch),

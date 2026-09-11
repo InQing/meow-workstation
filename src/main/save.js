@@ -8,6 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const { app, ipcMain } = require('electron');
 
+const config = require('../shared/config.js');
+
 const SAVE_FILE = 'miaogongwei-save.json';
 const BACKUP_FILE = 'miaogongwei-save.backup.json';
 
@@ -18,10 +20,11 @@ const DEFAULT_SAVE = {
   cards: {},                  // { cardId: count }
   pity: 0,                    // 抽卡保底计数
   affection: 18,              // 好感度
-  currentCat: 'orange',       // 当前出场的猫
+  currentCat: 'orange',       // 旧字段：内置猫 id（保留兼容，选内置猫时同步写）
+  currentPet: { type: 'builtin', ref: 'orange' }, // 当前桌宠来源：内置猫 | 上传的图片
   pomodoro: { today: 0, total: 0, lastDate: '' },
-  stats: { draws: 0, bestGameScore: 0 },
-  settings: { workMin: 25, breakMin: 5, volume: 0.5, alwaysOnTop: true },
+  stats: { draws: 0, bestGameScore: 0, bestReflexMs: 0, reflexBreaks: 0 },
+  settings: { workMin: 25, breakMin: 5, volume: 0.5, alwaysOnTop: true, petScale: config.petSize.defaultScale },
 };
 
 let state = null;
@@ -55,6 +58,8 @@ function loadFromDisk() {
     if (fs.existsSync(savePath())) {
       const raw = JSON.parse(fs.readFileSync(savePath(), 'utf-8'));
       state = mergeDeep(JSON.parse(JSON.stringify(DEFAULT_SAVE)), raw);
+      // 旧档迁移：没有 currentPet 的档按 currentCat 推导一次（之后以 currentPet 为准）
+      if (!raw.currentPet) state.currentPet = { type: 'builtin', ref: raw.currentCat || 'orange' };
     } else {
       state = JSON.parse(JSON.stringify(DEFAULT_SAVE));
     }

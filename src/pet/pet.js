@@ -16,6 +16,8 @@
 
   let SAVE = null;
   let SPEECH = null;
+  let PET = null;            // 当前桌宠来源 { type, ref }
+  let R = null;              // 当前渲染器（CatRenderer | ImageRenderer）
   const catCache = {};
 
   let bubbleTimer = null;
@@ -38,16 +40,47 @@
     sayText(pool[Math.floor(Math.random() * pool.length)], ms);
   }
 
-  /* ---------------- 素材 ---------------- */
+  /* ---------------- 桌宠素材（内置猫 / 图片桌宠） ---------------- */
 
-  async function loadCat(id) {
-    if (!catCache[id]) {
-      catCache[id] = await window.mgw.readJson('assets/cats/' + id + '.json');
+  /**
+   * 加载当前桌宠：按来源分流渲染器（两者同接口），状态机 / 互动逻辑无感知
+   * @param {{type:'builtin'|'image', ref:string}} [src] 缺省用存档
+   */
+  async function loadPet(src) {
+    const source = src || window.MGW_PetAssets.resolveSource(SAVE);
+    document.body.classList.toggle('image-pet', source.type === 'image');
+
+    if (source.type === 'image') {
+      const data = await window.mgw.petsGet(source.ref);
+      if (!data) {                       // 图片宠物被删 / 文件损坏 → 回退内置橘猫
+        sayText('这张图片找不到了，先变回橘猫', 2600);
+        return loadPet({ type: 'builtin', ref: 'orange' });
+      }
+      CatRenderer.stop();
+      ImageRenderer.mount(canvas);
+      await ImageRenderer.loadPet(data);
+      R = ImageRenderer;
+    } else {
+      const id = source.ref;
+      if (!catCache[id]) catCache[id] = await window.mgw.readJson('assets/cats/' + id + '.json');
+      if (!catCache[id]) return loadPet({ type: 'builtin', ref: 'orange' });
+      ImageRenderer.stop();
+      CatRenderer.mount(canvas);
+      CatRenderer.loadCat(catCache[id]);
+      R = CatRenderer;
     }
-    CatRenderer.loadCat(catCache[id]);
+
+    PET = source;
+    StateMachine.init(R);
     StateMachine.setBase('idle');
-    await window.mgw.patchSave({ currentCat: id }); // 重启保持当前猫
-    if (SAVE) SAVE.currentCat = id;
+    applyScale(scale);                   // 新渲染器按当前尺寸重排画布
+    window.mgw.setTrayIcon(await makeTrayIcon());
+    // 重启保持当前桌宠；内置猫同步写旧字段 currentCat
+    await applyPatch(Object.assign(
+      { currentPet: source },
+      source.type === 'builtin' ? { currentCat: source.ref } : {}
+    ));
+    return source;
   }
 
   /* ---------------- 尺寸：拖动右下角手柄缩放（settings.petScale 持久化） ---------------- */
@@ -75,7 +108,7 @@
     rootEl.style.setProperty('--s', m.scale + 'px');
     rootEl.style.setProperty('--padl', m.padL + 'px');   // 气泡 / 按钮栏的居中基准（猫的中线）
     rootEl.style.setProperty('--padr', m.padR + 'px');
-    CatRenderer.resize(m);
+    if (R) R.resize(m);
     HG.size = m.hourglass;   // 沙漏跟着缩放重排画布
     fitHourglass();
     if (window.mgw.resizePet) window.mgw.resizePet(m.width, m.height);
@@ -120,12 +153,23 @@
 
   /* ---------------- 托盘图标（程序化生成，跟随当前猫配色） ---------------- */
 
-  function makeTrayIcon() {
+  async function makeTrayIcon() {
+    // 图片桌宠：直接用默认形象缩一张（走 canvas，不依赖像素网格）
+    if (PET && PET.type === 'image' && ImageRenderer.has(window.MGW_PetAssets.DEFAULT_SLOT)) {
+      const side = cfg.imagePet.traySide;
+      const c = document.createElement('canvas');
+      c.width = c.height = side;
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = true;
+      g.drawImage(ImageRenderer.image(window.MGW_PetAssets.DEFAULT_SLOT), 0, 0, side, side);
+      return c.toDataURL('image/png');
+    }
+    // 内置像素猫：程序化画 16×16（原逻辑）
     const c = document.createElement('canvas');
     c.width = c.height = 16;
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
-    const pal = catCache[SAVE && SAVE.currentCat] ? catCache[SAVE.currentCat].palette : null;
+    const pal = PET && catCache[PET.ref] ? catCache[PET.ref].palette : null;
     g.fillStyle = '#3a2a1e';
     g.fillRect(3, 2, 2, 2);
     g.fillRect(11, 2, 2, 2);
@@ -528,12 +572,9 @@
       getSave: () => SAVE,
       applyPatch,
     });
-    CatRenderer.mount(canvas);
-    StateMachine.init(CatRenderer);
-    await loadCat(SAVE.currentCat || 'orange');
-
-    // 尺寸：跟随上次拖动的结果（窗口尺寸主进程建窗时已按它算好）
+    // 尺寸先摆好（--s / 窗口），loadPet 挂载渲染器后会按同一套 metrics 重排画布
     applyScale((SAVE.settings && SAVE.settings.petScale) || cfg.petSize.defaultScale);
+    await loadPet(window.MGW_PetAssets.resolveSource(SAVE));
 
     window.MGW_Drag.attach(canvas, { onTap });
     canvas.addEventListener('mousemove', touch);
@@ -542,6 +583,8 @@
     bindPomodoro();
     bindSettings();
     bindGameReact();
+    // 面板切换 / 删除 / 换槽位图 → 主进程广播，桌宠即时换形象
+    window.mgw.onPetChanged((src) => { loadPet(src).catch((e) => console.error('[pet] loadPet failed:', e)); });
     startHourglassLoop();
 
     canvas.addEventListener('contextmenu', (e) => {
@@ -549,14 +592,15 @@
       window.mgw.showPetMenu();
     });
 
-    window.mgw.setTrayIcon(makeTrayIcon());
     startIdleWatch();
     say('idle', 3000);
     syncPomodoro();
 
     // 托盘「调试」菜单调用
     window.MGW_DEBUG = {
-      setCat: (id) => loadCat(id),
+      setCat: (id) => loadPet({ type: 'builtin', ref: id }),
+      setPet: (type, ref) => loadPet({ type, ref }),
+      reloadPet: () => loadPet(PET),
       setState: (st) => StateMachine.set(st),
       playFor: (st, ms) => StateMachine.playFor(st, ms),
       setScale: (s) => applyScale(s, { persist: true, tip: true }),
@@ -569,10 +613,11 @@
       get save() { return SAVE; },
       get level() { return Affection.level(); },
       get info() {
-        return { cat: SAVE.currentCat, anim: CatRenderer.getState().anim, level: Affection.level(), scale };
+        const st = R ? R.getState() : {};
+        return { pet: PET, anim: st.anim, level: Affection.level(), scale };
       },
     };
-    console.log('[pet] started, current cat:', SAVE.currentCat, 'scale:', scale);
+    console.log('[pet] started, pet:', JSON.stringify(PET), 'scale:', scale);
   }
 
   boot().catch((err) => console.error('[pet] boot failed:', err));

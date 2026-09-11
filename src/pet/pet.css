@@ -189,3 +189,6 @@ body:hover .grip { visibility: visible; pointer-events: auto; }
 }
 
 .size-tip.hidden { display: none; }
+
+/* 图片桌宠：照片/插画要走平滑采样（pixelated 只服务像素猫） */
+body.image-pet #cat { image-rendering: auto; }

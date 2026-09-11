@@ -1,11 +1,13 @@
 /**
- * 猫咪状态机：7 状态
+ * 猫咪状态机：持续态 + 一次性态（清单收敛在 shared/config.js 的 petStates）
  * 持续态：idle（待机）/ sleep（打盹）/ work（番茄中陪工）
- * 一次性：happy（欢呼）/ shock（炸毛）/ annoyed（嫌弃）/ eat（干饭）—— 播完自动回持续态
+ * 一次性：happy / shock / annoyed / eat / stretch —— 播完自动回持续态
+ * 定时态：belly（翻肚皮）由 playFor(ms) 手动定时
  */
 (function () {
-  const ONCE = ['happy', 'shock', 'annoyed', 'eat'];
-  const SUSTAIN = ['idle', 'sleep', 'work'];
+  const cfg = window.MGW_CONFIG;
+  const ONCE = cfg.petStates.once;
+  const SUSTAIN = cfg.petStates.sustain;
 
   const S = {
     renderer: null,

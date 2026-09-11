@@ -755,3 +755,63 @@ table.rates td.num { text-align: right; font-family: var(--font-display); font-v
 .r-grade.normal { color: var(--color-text); }
 .r-grade.slow { color: #d8a26a; border-color: rgba(216, 162, 106, .5); }
 .r-grade.sloth { color: var(--color-dim); }
+
+/* ============================================================
+   桌宠页 —— 内置猫 + 我的猫（卡片列表 + 10 个槽位网格）
+   ============================================================ */
+.pet-sec { margin-bottom: var(--space-5); }
+.pet-sec > .sec-title { margin-bottom: var(--space-3); }
+.pet-grid { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.pet-card {
+  width: 108px; padding: var(--space-2); cursor: pointer; text-align: center;
+  background: var(--color-surface); border: 1px solid var(--color-line);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-1);
+  transition: border-color var(--dur-fast) ease-out;
+}
+.pet-card:hover { border-color: var(--color-line-2); }
+.pet-card.active { border-color: var(--color-accent); box-shadow: 0 0 0 1px rgba(255, 157, 46, .35), var(--shadow-1); }
+.pet-card .thumb {
+  height: 76px; display: flex; align-items: center; justify-content: center;
+  background: var(--color-inset); border-radius: var(--radius-sm); overflow: hidden;
+}
+.pet-card .thumb img { max-width: 100%; max-height: 100%; display: block; }
+.pet-card .thumb canvas { width: 72px; height: 72px; image-rendering: pixelated; }
+.pet-card .pname {
+  margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--color-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pet-card .pcard-actions { display: flex; gap: 6px; margin-top: var(--space-2); }
+.pet-card .pbtn {
+  flex: 1; min-height: 28px; cursor: pointer;
+  background: transparent; color: var(--color-muted);
+  border: 1px solid var(--color-line); border-radius: var(--radius-sm); font-size: var(--fs-xs);
+}
+.pet-card .pbtn:hover { color: var(--color-text); border-color: var(--color-line-2); }
+.pet-card .pbtn.danger:hover { color: #ff9d9d; border-color: rgba(255, 120, 120, .5); }
+.pet-add { margin-top: var(--space-3); }
+
+/* 改名弹层 */
+.field input[type="text"] {
+  width: 180px; min-height: 40px; padding: 0 var(--space-3);
+  color: var(--color-text); background: var(--color-inset);
+  border: 1px solid var(--color-line-2); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-inset); font-size: var(--fs-base);
+}
+.field input[type="text"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.sheet-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4); }
+
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(122px, 1fr)); gap: var(--space-3); }
+.slot-card {
+  padding: var(--space-2); text-align: center;
+  background: var(--color-surface); border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+.slot-card.empty { border-style: dashed; }
+.slot-card .thumb.sm {
+  height: 64px; display: flex; align-items: center; justify-content: center;
+  background: var(--color-inset); border-radius: var(--radius-sm); overflow: hidden;
+}
+.slot-card .thumb.sm img { max-width: 100%; max-height: 100%; }
+.slot-card .pname { margin: var(--space-2) 0; font-size: var(--fs-sm); color: var(--color-text); }
+.slot-actions { display: flex; gap: 6px; justify-content: center; }
+.slot-actions .btn { min-height: 30px; padding: 0 10px; font-size: var(--fs-xs); }

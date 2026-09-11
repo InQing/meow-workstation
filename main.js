@@ -4,11 +4,13 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, shell, dialog } = require('electron');
 
 const config = require('./src/shared/config.js');
 const save = require('./src/main/save.js');
 const pomodoro = require('./src/main/pomodoro.js');
+const pets = require('./src/main/pets.js');
+const PetAssets = require('./src/shared/petAssets.js');
 
 let petWin = null;
 let panelWin = null;
@@ -138,17 +140,21 @@ function createPanelWindow(tab) {
 /* ---------------- 菜单 ---------------- */
 
 /* ---------------- 调试菜单：切换猫 / 强制切状态（验收用，保留给以后预览素材） ---------------- */
-const CAT_LIST = [
-  { id: 'orange', name: '橘猫' },
-  { id: 'cow', name: '奶牛猫' },
-  { id: 'black', name: '黑猫' },
-  { id: 'calico', name: '三花猫' },
-  { id: 'tabby', name: '狸花猫' },
-];
-const STATE_LIST = ['idle', 'sleep', 'work', 'happy', 'shock', 'annoyed', 'eat'];
+const CAT_LIST = config.builtinCats;   // 清单收敛到 shared/config.js（面板「桌宠」页共用）
+const STATE_LIST = config.petStates.sustain.concat(config.petStates.once, config.petStates.timed);
 
 function runInPet(js) {
   if (petWin && !petWin.isDestroyed()) petWin.webContents.executeJavaScript(`window.${js}`);
+}
+
+/** 调试菜单：图片桌宠（每次弹菜单现查，刚上传的立刻能选） */
+function imagePetDebugItems() {
+  const list = pets.listPets();
+  if (!list.length) return [{ label: '（还没上传过）', enabled: false }];
+  return list.map((p) => ({
+    label: p.name,
+    click: () => runInPet(`MGW_DEBUG.setPet('image', ${JSON.stringify(p.id)})`),
+  }));
 }
 
 function debugSubmenu() {
@@ -162,6 +168,7 @@ function debugSubmenu() {
           click: () => runInPet(`MGW_DEBUG.setCat('${c.id}')`),
         })),
       },
+      { label: '切换图片桌宠', submenu: imagePetDebugItems() },
       {
         label: '切换状态',
         submenu: STATE_LIST.map((s) => ({
@@ -304,6 +311,59 @@ function registerIpc() {
     if (petWin && !petWin.isDestroyed()) petWin.webContents.send('pet:react', kind);
   });
 
+  /* ---- 图片桌宠：存 userData/pets/，不走 assets/（那里被锁死在仓库内） ---- */
+  const pickImageFile = async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const r = await dialog.showOpenDialog(win, {
+      title: '选择桌宠图片（建议透明底方形）',
+      properties: ['openFile'],
+      filters: [{ name: '图片', extensions: ['png', 'webp', 'jpg', 'jpeg'] }],
+    });
+    return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+  };
+
+  ipcMain.handle('pets:list', () => pets.listPets());
+  ipcMain.handle('pets:get', (_e, id, opts) => pets.getPetImages(id, opts));
+  ipcMain.handle('pets:create', async (e) => {
+    const file = await pickImageFile(e);
+    return file ? pets.createFrom(file) : null;
+  });
+  ipcMain.handle('pets:set-slot', async (e, id, slot) => {
+    const file = await pickImageFile(e);
+    if (!file) return null;
+    const r = pets.setSlot(id, slot, file);
+    if (r.ok) broadcastPetChangedIfCurrent(id);
+    return r;
+  });
+  ipcMain.handle('pets:clear-slot', (_e, id, slot) => {
+    const r = pets.clearSlot(id, slot);
+    if (r.ok) broadcastPetChangedIfCurrent(id);
+    return r;
+  });
+  ipcMain.handle('pets:rename', (_e, id, name) => pets.rename(id, name));
+  ipcMain.handle('pets:remove', (_e, id) => {
+    const r = pets.removePet(id);
+    const cur = PetAssets.resolveSource(save.getSave());
+    if (r.ok && cur.type === 'image' && cur.ref === id) {   // 删了正在出场的 → 回退橘猫
+      const fallback = { type: 'builtin', ref: 'orange' };
+      save.patchSave({ currentPet: fallback, currentCat: 'orange' });
+      broadcastAll('pet:changed', fallback);
+    }
+    return r;
+  });
+  ipcMain.handle('pets:select', (_e, src) => {
+    const s = PetAssets.resolveSource({ currentPet: src });
+    if (s.type === 'image') {
+      if (!pets.exists(s.ref)) return { ok: false, message: '这只桌宠不在了' };
+      save.patchSave({ currentPet: s });
+    } else {
+      const ref = config.builtinCats.some((c) => c.id === s.ref) ? s.ref : 'orange';
+      save.patchSave({ currentPet: { type: 'builtin', ref }, currentCat: ref });
+    }
+    broadcastAll('pet:changed', PetAssets.resolveSource(save.getSave()));
+    return { ok: true };
+  });
+
   // 设置（阶段 1：落盘 + 立刻生效的部分）
   ipcMain.on('settings:set', (_e, patch) => {
     const next = save.patchSave({ settings: patch });
@@ -316,6 +376,12 @@ function registerIpc() {
   pm = pomodoro.init({ tooltip: updateTrayTooltip });
   // 渲染层主动查询当前番茄状态（广播丢失/窗口刚起时的兜底）
   ipcMain.handle('pomodoro:get', () => pomodoro.getState());
+}
+
+/** 正在出场的图片桌宠被改动（换槽位图）→ 通知 pet 窗重载 */
+function broadcastPetChangedIfCurrent(id) {
+  const cur = PetAssets.resolveSource(save.getSave());
+  if (cur.type === 'image' && cur.ref === id) broadcastAll('pet:changed', cur);
 }
 
 function broadcastAll(channel, payload) {

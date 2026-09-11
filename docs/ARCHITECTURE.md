@@ -53,7 +53,7 @@ flowchart TB
 | 生命周期 | 启动即建；`pet:menu` 弹右键菜单 | 按需创建；已存在则 `show()` + 聚焦 |
 | 渲染进程崩溃 | 自动 reload（最多 3 次） | — |
 
-**CSP**（`src/pet/index.html`）：`default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'`。
+**CSP**（`src/pet/index.html`）：`default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:`（`data:` 供图片桌宠的 dataURL）。
 → 这是**离线铁律的来源**：不能引 CDN 字体/脚本。拉丁数字用系统等宽（Cascadia Mono / Consolas）兜底。
 
 ---
@@ -70,6 +70,9 @@ flowchart TB
 | `save:load` | 取存档快照 |
 | `save:patch` | 深合并写入，返回**写后快照**（渲染层以此为权威） |
 | `pomodoro:get` | 主动拉番茄状态（广播丢失时的兜底） |
+| `pets:list` / `pets:get` | 图片桌宠：列表（带缩略图）/ 取图（dataURL，`thumb` 选项给 128px 缩略图） |
+| `pets:create` / `pets:set-slot` / `pets:clear-slot` / `pets:rename` / `pets:remove` | 图片桌宠：新建 / 换槽位图 / 清槽位 / 改名 / 删除（前两个弹系统文件框，统一返回 `{ok,...}`） |
+| `pets:select` | 切换当前桌宠（内置猫或图片），写存档并广播 `pet:changed` |
 
 **渲染层 → 主进程（`send`，无返回值）**
 
@@ -92,8 +95,11 @@ flowchart TB
 | `settings:changed` | 设置变更 |
 | `panel:navigate` | 切 tab |
 | `pet:react` | 围观反应（`{kind, score, best, game}`） |
+| `pet:changed` | 当前桌宠变更（切换 / 删除回退 / 当前宠物的槽位图更新） |
 
 **广播注意**：主进程 `broadcastAll()` / `pomodoro.send()` 都**逐窗口 try/catch** —— 某个窗口的 `webContents` 异常不能连累后面的窗口。桌宠靠在最后收到 `pomodoro:state` 来收沙漏，漏一条就卡住。
+
+**图片桌宠的存储与数据流**：上传图片**不进仓库 `assets/`**（`assets:read` 被锁死在仓库内），而是归一化（居中裁方 → 限长边 → PNG 保 alpha）后存 `userData/pets/<petId>/`（`pet.json` + `<槽位>.png`，文件系统即真相）。数据流：面板「桌宠」页 → `pets:*` → 主进程 `src/main/pets.js`（fs + nativeImage）→ 桌宠窗 `pets:get` 拿 dataURL → `src/pet/imageRenderer.js` 画进同一个「24 格显示盒」（与 `catRenderer.js` 同接口，`pet.js` 按 `currentPet.type` 分流）。
 
 ---
 
@@ -108,8 +114,10 @@ flowchart TB
 | `shared/games/fish.js` | `MGW_Fish` | 鱼干突袭逻辑 |
 | `shared/games/reflex.js` | `MGW_Reflex` | 反应力逻辑 |
 | `shared/audio.js` | `MGW_Audio` | 音效（**零调用**） |
-| `pet/catRenderer.js` | `CatRenderer` | 画猫 + `isOpaqueAt()` |
-| `pet/stateMachine.js` | `StateMachine` | 7 状态机 |
+| `shared/petAssets.js` | `MGW_PetAssets` | 图片桌宠纯逻辑（裁方形 / 校验 / 来源解析） |
+| `pet/catRenderer.js` | `CatRenderer` | 画像素猫 + `isOpaqueAt()`（`stop()` 可停 rAF） |
+| `pet/imageRenderer.js` | `ImageRenderer` | 画图片桌宠（与 CatRenderer 同接口） |
+| `pet/stateMachine.js` | `StateMachine` | 状态机（清单在 `config.petStates`） |
 | `pet/affection.js` | `Affection` | 好感与经济 |
 | `pet/dragHandler.js` | `MGW_Drag` | 拖动（阈值判定，区分点击/拖拽） |
 | `pet/pet.js` | `MGW_DEBUG` | 调试入口（菜单里切猫/切状态） |

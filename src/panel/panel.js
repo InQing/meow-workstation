@@ -7,6 +7,7 @@
   const TABS = {
     collection: window.MGW_TabCollection,
     draw: window.MGW_TabDraw,
+    pets: window.MGW_TabPets,
     game: window.MGW_TabGame,
     settings: window.MGW_TabSettings,
   };

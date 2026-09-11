@@ -53,11 +53,25 @@
     return api;
   }
 
+  let rafId = 0;
+
+  /** rAF 循环：切换渲染器时可停可恢复（重复调用无副作用） */
+  function startLoop() {
+    if (rafId) return;
+    S.lastTs = 0;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stop() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+
   function mount(canvas) {
     S.canvas = canvas;
     S.ctx = canvas.getContext('2d');
     fitCanvas(canvas, S.ctx);
-    requestAnimationFrame(tick);
+    startLoop();
     return api;
   }
 
@@ -114,6 +128,8 @@
   }
 
   function tick(ts) {
+    rafId = 0;
+    if (!S.canvas) return;
     if (!S.lastTs) S.lastTs = ts;
     const dt = ts - S.lastTs;
     S.lastTs = ts;
@@ -144,7 +160,7 @@
       // 没必要 60fps 重画整块透明画布——拖动窗口时那是白给合成器添活。
       if (!S.playing || S.frameIdx !== before) drawCurrent();
     }
-    requestAnimationFrame(tick);
+    rafId = requestAnimationFrame(tick);
   }
 
   /** 给定窗口内坐标，判断该像素是否有猫（阶段 7 点击穿透用） */
@@ -159,7 +175,7 @@
   }
 
   const api = {
-    mount, loadCat, play, once, isOpaqueAt, drawGrid, resize,
+    mount, loadCat, play, once, isOpaqueAt, drawGrid, resize, stop,
     getState: () => ({
       anim: S.currentAnim,
       frame: S.frameIdx,

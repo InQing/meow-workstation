@@ -22,3 +22,7 @@ desktop.ini
 .env
 .env.local
 .env.*.local
+
+# AGENT
+AGENTS.md
+docs/superpowers/

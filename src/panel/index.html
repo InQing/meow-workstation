@@ -23,12 +23,14 @@
       <nav class="nav">
         <button class="nav-btn active" data-tab="collection"><i>📖</i>图鉴</button>
         <button class="nav-btn" data-tab="draw"><i>🎴</i>抽卡</button>
+        <button class="nav-btn" data-tab="pets"><i>🐾</i>桌宠</button>
         <button class="nav-btn" data-tab="game"><i>🐟</i>游戏</button>
         <button class="nav-btn" data-tab="settings"><i>⚙️</i>设置</button>
       </nav>
       <div class="pages">
         <section class="page active" data-page="collection"></section>
         <section class="page" data-page="draw"></section>
+        <section class="page" data-page="pets"></section>
         <section class="page" data-page="game"></section>
         <section class="page" data-page="settings"></section>
       </div>
@@ -41,6 +43,7 @@
   <div class="toast hidden" id="toast"></div>
 
   <script src="../shared/config.js"></script>
+  <script src="../shared/petAssets.js"></script>
   <script src="../shared/gacha.js"></script>
   <script src="../shared/games/fish.js"></script>
   <script src="../shared/games/reflex.js"></script>
@@ -51,6 +54,7 @@
   <script src="tabs/games/reflex.js"></script>
   <script src="tabs/game.js"></script>
   <script src="tabs/settings.js"></script>
+  <script src="tabs/pets.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>
