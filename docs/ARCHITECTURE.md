@@ -85,13 +85,14 @@ flowchart TB
 | `pet:react` | 桌宠围观联动（面板 → 主进程转发 → pet 窗） |
 | `settings:set` | 改设置 |
 | `pomodoro:start` / `pause` / `skip` | 番茄钟控制 |
+| `pomodoro:distracted` | 桌宠报告本番茄摸鱼超限 → 结算打折（仅 work 阶段） |
 
 **主进程 → 渲染层（广播）**
 
 | 通道 | 用途 |
 |---|---|
 | `pomodoro:state` | 每 250ms 的番茄状态（phase / remaining / duration / progress） |
-| `pomodoro:done` | 阶段结束（带 reward） |
+| `pomodoro:done` | 阶段结束（带 `reward` 与 `distracted` 标记） |
 | `settings:changed` | 设置变更 |
 | `panel:navigate` | 切 tab |
 | `pet:react` | 围观反应（`{kind, score, best, game}`） |
@@ -181,7 +182,7 @@ start(phase) → endAt = Date.now() + durationMs
 每 250ms tick → remainMs = max(0, endAt - Date.now())   ← 时间戳差值，扛休眠/节流
              → broadcast('pomodoro:state')
              → remainMs <= 0 → complete()
-complete(work)  → 结算 (+30 金币 / +1 券 / +10 好感) → 通知 → 广播 done → 自动 start('break')
+complete(work)  → 结算 (+30 金币 / +1 券 / +10 好感；摸鱼超限则打折) → 通知 → 广播 done → 自动 start('break')
 complete(break) → 只通知 → phase = 'idle'
 ```
 
@@ -193,7 +194,9 @@ complete(break) → 只通知 → phase = 'idle'
 
 `remaining` 是整数秒（给文字），`progress` 是 0~1 浮点（给绘制）——**别用整数秒自己做除法算进度**，会丢精度导致沙漏几乎不动。
 
-**专注中气泡静默**（`pet/pet.js`）：`pomodoro:state` 到达时维护 `pomoWorking = phase === 'work' && running`，唯一的气泡出口 `sayText()` 在它为真时直接 `return` —— 不弹、也不排队补弹（避免专注结束一股脑儿冒出来）；刚进入专注时会 `hideBubble()` 把正挂着的那条立刻收掉，启动打招呼也挪到 `syncPomodoro()` 之后（专注中崩溃重载不会冒泡）。只放行两处「状态切换本身」的反馈：暂停 / 继续（继续那句带 `{force:true}`，因为此刻标志已是专注中），以及 `pomodoro:done` 的番茄完成结算（主进程先发 done 再 `start('break')`，到手时标志仍为专注中，必须放行）。⚠️ 暂停（`running=false`）不算专注，气泡照常 —— 否则「⏸ 番茄已暂停」这句自己就被闸门拦掉了。
+**专注期间：气泡静默 + 互动惩罚**（`pet/pet.js`）：`sayText()` 是唯一气泡出口，`pomoWorking`（`work && running`）时直接 `return`（不弹、不排队）；进入专注会 `hideBubble()` 收掉挂着的那条；只放行暂停 / 继续与 `pomodoro:done` 结算（`{force:true}`）。⚠️ 暂停不算专注，否则「⏸ 番茄已暂停」自己就被拦掉。
+
+摸头 / 喂食在专注中走 `focusInteract()`：**不给收益**（摸头不加好感、喂食不扣币、不切 happy/eat），只弹 `focusNag`；同一番茄内超过 `config.pomodoro.interact.nagLimit` 次后**每次**「……」+ annoyed + 扣 1 好感，并在首次超限时报告主进程 —— 本番茄结算按 `config.pomodoro.distractedPenalty` 打折（金币 / 好感 ×比例、无券；`pomodoro:distracted` 仅 work 阶段收）。计数与标记在**换番茄**时清零（暂停→继续不算换番茄）。
 
 ---
 
@@ -252,8 +255,8 @@ petMetrics(scale) → { scale, padL, padR, catW, offsetX, offsetY, width, height
   → main: ipcMain 'pomodoro:start' → pomodoro.togglePause()
   → 250ms tick 广播 'pomodoro:state'
   → pet: updateHourglass() 重画沙漏（上半沙 = sqrt(progress)）
-  → 到点: complete() → save.patchSave(累加金币/券/好感) → Notification
-        → 广播 'pomodoro:done'（pet 播 happy 动画 + 结算台词：专注中唯一放行的气泡）
+  → 到点: complete() → 按摸鱼标记选奖励（摸鱼过则打折）→ save.patchSave(累加金币/券/好感) → Notification
+        → 广播 'pomodoro:done'（带 reward + distracted；pet 播 happy + 结算台词，专注中唯一放行的气泡）
         → 自动 start('break')
 ```
 
@@ -276,7 +279,7 @@ panel 子游戏跑完一局
 | 类型 | 位置 | 需要 Electron | 盯什么 |
 |---|---|---|---|
 | 逻辑自测 | `tools/*-selftest.js` | ❌ | 概率、数值、判定、结算 patch |
-| UI 冒烟 | `tools/panel-smoke.js`、`pet-smoke.js` | ✅ | 真窗真 DOM、tab 切换、结算卡放得下、拖动尺寸恒定、专注中气泡静默 |
+| UI 冒烟 | `tools/panel-smoke.js`、`pet-smoke.js` | ✅ | 真窗真 DOM、tab 切换、结算卡放得下、拖动尺寸恒定、番茄期气泡静默 |
 | 边界探针 | `tools/win-bounds-drift-probe.js` | ✅ | setBounds vs setPosition、取整噪声、反馈回路 |
 
 冒烟脚本的两个通用坑（详见 `~/.workbuddy/skills/electron-ui-smoke`）：

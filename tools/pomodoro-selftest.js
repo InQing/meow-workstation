@@ -3,6 +3,7 @@
  *   node tools/pomodoro-selftest.js
  *
  * 重点验证「暂停 → 广播 running:false」这条链（老大报的：暂停后桌宠头顶进度条不消失）。
+ * 另含：摸鱼超限（pomodoro:distracted）→ 本番茄结算打折 / 新番茄清零。
  * 渲染层那边由 tools/pet-smoke.js 验证（收到 running:false 就隐藏进度条）。
  */
 const path = require('path');
@@ -13,6 +14,7 @@ const Module = require('module');
 /* ---- stub electron ---- */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mgw-pomodoro-'));
 const sent = [];          // 广播出去的 pomodoro:state / pomodoro:done
+const notices = [];       // 系统通知（stub，用来断言打折文案）
 const handlers = {};      // ipcMain.on 注册表
 
 const fakeElectron = {
@@ -20,7 +22,11 @@ const fakeElectron = {
     on: (ch, fn) => { handlers[ch] = fn; },
     handle: () => {},
   },
-  Notification: class { static isSupported() { return false; } show() {} },
+  Notification: class {
+    constructor(o) { notices.push(o); }
+    static isSupported() { return true; }   // 让 notify() 真的走构造，好断言文案
+    show() {}
+  },
   BrowserWindow: {
     getAllWindows: () => [{
       isDestroyed: () => false,
@@ -91,6 +97,37 @@ check('running=false（进度条同样要隐藏）', s.running === false);
 console.log('\n--- 6. 状态查询（ipcMain handle 的兜底数据源）---');
 const q = pomodoro.getState();
 check('getState 与广播同源', q.phase === 'idle' && q.running === false, JSON.stringify(q));
+
+console.log('\n--- 7. 摸鱼超限 → 本番茄结算打折（金币/好感减半、无券）---');
+sent.length = 0;
+notices.length = 0;
+handlers['pomodoro:start']();          // idle → 开新番茄
+handlers['pomodoro:distracted']();     // 桌宠报告：本番茄摸鱼超限
+handlers['pomodoro:skip']();           // 跳过工作 → 结算
+const pDone = [...sent].reverse().find((m) => m.ch === 'pomodoro:done');
+console.log('[penalty done]', pDone && JSON.stringify(pDone.d));
+check('done 带 distracted 标记', pDone && pDone.d.distracted === true, pDone && JSON.stringify(pDone.d));
+check('金币减半（30 → 15）', pDone && pDone.d.reward.coins === 15, pDone && JSON.stringify(pDone.d.reward));
+check('不送券（0）', pDone && pDone.d.reward.tickets === 0, pDone && JSON.stringify(pDone.d.reward));
+check('好感减半（10 → 5）', pDone && pDone.d.reward.affection === 5, pDone && JSON.stringify(pDone.d.reward));
+check('通知文案写明「奖励打折」', notices.some((n) => String(n.body).includes('奖励打折')), JSON.stringify(notices.map((n) => n.body)));
+check('通知文案不提好感', notices.every((n) => !String(n.body).includes('好感')), JSON.stringify(notices.map((n) => n.body)));
+
+console.log('\n--- 8. 新番茄清零：奖励恢复正常 ---');
+sent.length = 0;
+notices.length = 0;
+handlers['pomodoro:skip']();           // 结束休息 → idle
+handlers['pomodoro:start']();          // 开新番茄（摸鱼标记清零）
+handlers['pomodoro:skip']();           // 结算
+const nDone = [...sent].reverse().find((m) => m.ch === 'pomodoro:done');
+console.log('[normal done]', nDone && JSON.stringify(nDone.d));
+check('恢复 30 金币 / 1 券 / 10 好感',
+  nDone && nDone.d.reward.coins === 30 && nDone.d.reward.tickets === 1 && nDone.d.reward.affection === 10,
+  nDone && JSON.stringify(nDone.d.reward));
+check('不再标记 distracted', nDone && nDone.d.distracted === false, nDone && String(nDone.d.distracted));
+check('正常通知文案照旧（不提打折）',
+  notices.some((n) => String(n.body).includes('+30 金币 +1 券')) && notices.every((n) => !String(n.body).includes('打折')),
+  JSON.stringify(notices.map((n) => n.body)));
 
 /* 清理临时存档目录 */
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* noop */ }

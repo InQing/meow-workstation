@@ -1,6 +1,6 @@
 /**
  * 喵工位 — preload（契约层）
- * 全部 IPC 通道一次定死：后续阶段只填主进程实现，不再改这里。
+ * 全部 IPC 通道集中在此定义（只增不改）：渲染层永远不直连 ipcRenderer。
  * contextIsolation: true，仅白名单 API 暴露给渲染层。
  */
 const { contextBridge, ipcRenderer } = require('electron');
@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('mgw', {
   pomodoroPause: () => ipcRenderer.send('pomodoro:pause'),
   pomodoroSkip: () => ipcRenderer.send('pomodoro:skip'),
   pomodoroGet: () => ipcRenderer.invoke('pomodoro:get'),   // 主动拉一次状态（兜底广播丢失）
+  pomodoroDistracted: () => ipcRenderer.send('pomodoro:distracted'),   // 本番茄摸鱼超限 → 结算打折
   onPomodoroState: (cb) => on('pomodoro:state', cb),
   onPomodoroDone: (cb) => on('pomodoro:done', cb),
 });

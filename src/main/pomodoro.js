@@ -18,6 +18,7 @@ const S = {
   remainMs: 0,
   endAt: 0,
   timer: null,
+  distracted: false,   // 本番茄被桌宠标记「摸鱼超限」→ 结算打折（内存态，不写存档）
   hooks: { tooltip: null },
 };
 
@@ -86,6 +87,7 @@ function start(phase = 'work') {
   S.remainMs = S.durationMs;
   S.endAt = Date.now() + S.remainMs;
   S.running = true;
+  S.distracted = false;   // 新阶段开始：摸鱼标记清零（结算已在上一个 complete 里读过）
   console.log(`[pomodoro] start ${phase}, ${minutes} min`);
   setTimer();
   broadcast();
@@ -123,11 +125,19 @@ function complete({ skipped = false } = {}) {
   if (finished === 'work') {
     const today = todayStr();
     const baseToday = st.pomodoro.lastDate === today ? st.pomodoro.today : 0;
-    const reward = {
-      coins: config.pomodoro.rewardCoins,
-      tickets: config.pomodoro.rewardTickets,
-      affection: config.pomodoro.rewardAffection,
-    };
+    // 摸鱼超限（桌宠报告过）→ 结算打折：金币 / 好感按比例、无券
+    const pen = config.pomodoro.distractedPenalty;
+    const reward = S.distracted
+      ? {
+          coins: Math.floor(config.pomodoro.rewardCoins * pen.coinRate),
+          tickets: pen.tickets,
+          affection: Math.floor(config.pomodoro.rewardAffection * pen.affectionRate),
+        }
+      : {
+          coins: config.pomodoro.rewardCoins,
+          tickets: config.pomodoro.rewardTickets,
+          affection: config.pomodoro.rewardAffection,
+        };
     // patch 是覆盖语义，这里必须基于存档现值累加
     save.patchSave({
       coins: (st.coins || 0) + reward.coins,
@@ -135,9 +145,13 @@ function complete({ skipped = false } = {}) {
       affection: (st.affection || 0) + reward.affection,
       pomodoro: { today: baseToday + 1, total: st.pomodoro.total + 1, lastDate: today },
     });
-    console.log('[pomodoro] work done, reward:', reward);
-    notify('番茄完成 🍅', `+${reward.coins} 金币 +${reward.tickets} 券，去休息 ${st.settings.breakMin} 分钟`);
-    send('pomodoro:done', { phase: 'work', reward, skipped, total: st.pomodoro.total + 1 });
+    console.log('[pomodoro] work done, reward:', JSON.stringify(reward), 'distracted:', S.distracted);
+    if (S.distracted) {
+      notify('番茄完成 🍅（摸鱼太多）', `奖励打折：+${reward.coins} 金币，没有券，去休息 ${st.settings.breakMin} 分钟`);
+    } else {
+      notify('番茄完成 🍅', `+${reward.coins} 金币 +${reward.tickets} 券，去休息 ${st.settings.breakMin} 分钟`);
+    }
+    send('pomodoro:done', { phase: 'work', reward, distracted: S.distracted, skipped, total: st.pomodoro.total + 1 });
     start('break'); // 自动进入休息
   } else if (finished === 'break') {
     notify('休息结束', '回来干活啦，老大');
@@ -154,6 +168,13 @@ function init(hooks = {}) {
   ipcMain.on('pomodoro:start', () => togglePause());
   ipcMain.on('pomodoro:pause', () => { if (S.running) togglePause(); });
   ipcMain.on('pomodoro:skip', () => skip());
+  // 桌宠报告「本番茄摸鱼超限」：只在 work 阶段收（避免收尾时插进来的迟到消息），
+  // 按布尔处理一次即可，新阶段 start() 会自动清零
+  ipcMain.on('pomodoro:distracted', () => {
+    if (S.phase !== 'work' || S.distracted) return;
+    S.distracted = true;
+    console.log('[pomodoro] distracted flagged: this work phase will pay a reduced reward');
+  });
   return { start, togglePause, skip, getState: payload };
 }
 

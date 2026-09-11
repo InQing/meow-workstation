@@ -111,6 +111,11 @@
       rewardCoins: 30,      // 工作完成 +30 金币
       rewardTickets: 1,    // +1 抽卡券
       rewardAffection: 10, // +10 好感
+      // 专注中被主动打扰（摸头 / 喂食）：前 nagLimit 次弹「劝专注」台词（不给收益），
+      // 超过后每次弹「……」，每次扣 penaltyAffection 好感，且本番茄结算打折
+      interact: { nagLimit: 5, penaltyAffection: 1 },
+      // 摸鱼超限 → 本番茄结算打折：金币 / 好感减半、无券（好感变动不进文案）
+      distractedPenalty: { coinRate: 0.5, affectionRate: 0.5, tickets: 0 },
     },
 
     // 失焦摸鱼检测（仅工作阶段生效，同一番茄限 1 次吐槽）

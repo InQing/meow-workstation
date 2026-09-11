@@ -46,11 +46,11 @@
     bubbleTimer = setTimeout(() => bubbleEl.classList.add('hidden'), ms);
   }
 
-  function say(key, ms = 2400) {
+  function say(key, ms = 2400, opts) {
     if (!SPEECH) return;
     const pool = Affection.poolFor(key, SPEECH);
     if (!pool.length) return;
-    sayText(pool[Math.floor(Math.random() * pool.length)], ms);
+    sayText(pool[Math.floor(Math.random() * pool.length)], ms, opts);
   }
 
   /* ---------------- 桌宠素材（内置猫 / 图片桌宠） ---------------- */
@@ -220,8 +220,45 @@
     }
   }
 
+  /* ---------------- 专注中的主动互动：先劝、再不理 ---------------- */
+
+  // 同一个番茄内累计的主动互动次数（摸头 / 喂食）；由 onPomoState 在换番茄时清零
+  // flagged：是否已把「摸鱼超限」告诉主进程（结算打折用，只发一次）
+  const focusPoke = { count: 0, flagged: false };
+
+  /** 互动计数清零（进入新的工作阶段 / 离开工作阶段时调用） */
+  function focusPokeReset() {
+    focusPoke.count = 0;
+    focusPoke.flagged = false;
+  }
+
+  /**
+   * 专注中被打扰（摸头 / 喂食）：不给任何收益，只弹一句「劝专注」；
+   * 超过 nagLimit 次 → 每次都是「……」+ 嫌弃 + 扣好感，并让主进程把本番茄结算打折
+   * @returns {{ok:boolean, reason:'nag'|'distracted', count:number}}
+   */
+  function focusInteract() {
+    const ic = cfg.pomodoro.interact;
+    focusPoke.count++;
+
+    if (focusPoke.count > ic.nagLimit) {
+      StateMachine.once('annoyed');
+      sayText('……', 2600, { force: true });
+      Affection.addAffection(-ic.penaltyAffection);
+      if (!focusPoke.flagged) {          // 标记只发一次；主进程按布尔处理
+        focusPoke.flagged = true;
+        if (window.mgw.pomodoroDistracted) window.mgw.pomodoroDistracted();
+      }
+      return { ok: false, reason: 'distracted', count: focusPoke.count };
+    }
+    say('focusNag', 2600, { force: true });
+    return { ok: true, reason: 'nag', count: focusPoke.count };
+  }
+
   function onTap() {
     touch();
+    // 专注中：摸鱼不给收益，只劝你专心（顺带计数，见 focusInteract）
+    if (pomoWorking) return focusInteract();
     const r = Affection.pet();
     if (r.ok) {
       StateMachine.once('happy');
@@ -241,6 +278,8 @@
   }
 
   function doFeed() {
+    // 专注中：猫不吃（不扣金币也不加好感），走同一条劝专注路径
+    if (pomoWorking) return focusInteract();
     const r = Affection.feed();
     if (r.ok) {
       StateMachine.once('eat');
@@ -455,6 +494,10 @@
     const wasWorking = pomoWorking;
     pomoWorking = working;
 
+    // 专注期互动计数：只在进入新番茄 / 离开工作阶段时清零
+    // （暂停→继续算同一个番茄，不清 —— 否则一暂停就能重置计数）
+    if (p.phase !== 'work' || !prevPomo || prevPomo.phase !== 'work') focusPokeReset();
+
     // 暂停 / 继续时给一句反馈，避免"进度条突然没了"造成的困惑
     const paused = p.phase !== 'idle' && !p.running;
     let resumedNow = false;
@@ -495,8 +538,12 @@
       if (d.phase === 'work') {
         StateMachine.once('happy');
         const r = d.reward || {};
+        // 摸鱼超限的番茄：文案挑明打折（不提好感，也不提券）
+        const line = d.distracted
+          ? `🍅 番茄完成……摸鱼太多，奖励打折 +${r.coins}金币`
+          : `🍅 番茄完成 +${r.coins}金币 +${r.tickets}券`;
         // 主进程「先发 pomodoro:done 再切休息」，此刻标志还是专注中 → 结算必须放行
-        sayText(`🍅 番茄完成 +${r.coins}金币 +${r.tickets}券`, 3600, { force: true });
+        sayText(line, 3600, { force: true });
       } else if (d.phase === 'break') {
         say('idle', 3000);
       }

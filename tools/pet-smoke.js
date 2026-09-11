@@ -5,6 +5,7 @@
  * 用途：
  *   - 番茄钟状态 → 左侧沙漏的显隐 / 暂停灰化 / 剩余时间小字
  *   - 专注中气泡静默：工作时间不弹气泡，番茄完成结算放行
+ *   - 专注中主动互动：只劝专注，超限「……」+ 扣好感，换番茄计数清零
  *   - 缩放（桌宠大小）→ 窗口尺寸、画布尺寸、持久化
  *   - 布局基准：气泡与按钮栏按「猫」居中（左右留白不等宽，按窗口居中会偏）
  *   - 拖动窗口 → 尺寸恒定（老大报过的漂移回归）
@@ -63,6 +64,8 @@ let trayIcon = '';
 ['pet:menu', 'panel:open', 'settings:set',
  'pomodoro:start', 'pomodoro:pause', 'pomodoro:skip'].forEach((ch) => ipcMain.on(ch, () => {}));
 ipcMain.on('tray:icon', (_e, dataUrl) => { trayIcon = dataUrl; });
+let distractedMarks = 0;   // 桌宠报告「本番茄摸鱼超限」的次数（真机主进程据此把结算打折）
+ipcMain.on('pomodoro:distracted', () => { distractedMarks++; });
 
 /* ---- 图片桌宠 mock：造一张纯红方形 PNG 当默认图（BGRA → NativeImage，不依赖 pngjs） ---- */
 function solidPngDataUrl(size, rgba) {
@@ -227,6 +230,15 @@ app.whenReady().then(async () => {
   console.log('[bubble 番茄完成]', JSON.stringify(bubDone));
   check('番茄完成结算气泡放行', bubDone.hidden === false && bubDone.text.includes('番茄完成'), JSON.stringify(bubDone));
 
+  // 摸鱼超限的番茄：结算文案挑明打折，不提券
+  win.webContents.send('pomodoro:done', { phase: 'work', reward: { coins: 15, tickets: 0 }, distracted: true, total: 4 });
+  await wait(300);
+  const bubPenalized = JSON.parse(await bubbleOf());
+  console.log('[bubble 摸鱼结算]', JSON.stringify(bubPenalized));
+  check('摸鱼结算气泡用打折文案（不提券）',
+    bubPenalized.hidden === false && bubPenalized.text.includes('打折') && !bubPenalized.text.includes('券'),
+    JSON.stringify(bubPenalized));
+
   /* ---- 1b. 布局基准：气泡 / 按钮栏挂的是「猫」的中线，不是窗口中线 ---- */
   // 左右留白不等宽（左边 4.5 格站沙漏、右边 1.75 格），按窗口居中会整体往右偏。
   // ⚠️ 必须等沙漏 / 气泡都渲染出来再量：它们是 display:none 时矩形全是 0。
@@ -298,6 +310,72 @@ app.whenReady().then(async () => {
   console.log('[sand 剩余25%]', JSON.stringify(m25));
   check('下仓沙面按面积反解（剩余 25% → d/lower ≈ 0.5）', Math.abs(m25.dTop - 0.5) <= 0.06, 'dTop ' + m25.dTop);
 
+  /* ---- 1d. 专注中主动互动：先劝专注，太多次才不理 ---- */
+  // 此时仍是 work+running（1c 最后一次 measureSand 推的状态），计数从 0 开始
+  const nagLimit = await js(`window.MGW_CONFIG.pomodoro.interact.nagLimit`);
+  const nagPenalty = await js(`window.MGW_CONFIG.pomodoro.interact.penaltyAffection`);
+  const affBefore = await js(`window.MGW_DEBUG.save.affection`);
+
+  // 喂食：专注中猫不吃 —— 不扣金币、不加好感，只劝（占用 1 次额度）
+  const coinsBefore = await js(`window.MGW_DEBUG.save.coins`);
+  await js(`window.MGW_DEBUG.feedResult(); true`);
+  await wait(200);
+  const feedNag = JSON.parse(await bubbleOf());
+  console.log('[focus feed]', JSON.stringify(feedNag), '/ coins', coinsBefore, '->', await js(`window.MGW_DEBUG.save.coins`));
+  check('专注中喂食弹劝专注气泡', feedNag.hidden === false && feedNag.text.length > 0, JSON.stringify(feedNag));
+  check('专注中喂食不扣金币', (await js(`window.MGW_DEBUG.save.coins`)) === coinsBefore);
+
+  // 再摸 nagLimit-1 次：额度内每次都是「劝专注」台词，好感不动（摸鱼没收益）
+  const nagLines = [feedNag];
+  for (let i = 1; i < nagLimit; i++) {
+    await js(`window.MGW_DEBUG.tapResult(); true`);
+    await wait(120);
+    nagLines.push(JSON.parse(await bubbleOf()));
+  }
+  console.log('[focus nag]', JSON.stringify(nagLines.map((l) => l.text)));
+  check('额度内每次都有劝专注气泡（不是「……」）',
+    nagLines.every((l) => l.hidden === false && l.text.length > 0 && l.text !== '……'),
+    JSON.stringify(nagLines.map((l) => l.text)));
+  check('额度内互动不加也不掉好感', (await js(`window.MGW_DEBUG.save.affection`)) === affBefore,
+    affBefore + ' -> ' + (await js(`window.MGW_DEBUG.save.affection`)));
+
+  // 第 nagLimit+1 次起：每次都「……」+ annoyed + 扣好感，并给主进程打一次「摸鱼」标记
+  await js(`window.MGW_DEBUG.tapResult(); true`);
+  await wait(250);
+  const ignoredBubble = JSON.parse(await bubbleOf());
+  const affIgnored = await js(`window.MGW_DEBUG.save.affection`);
+  console.log('[focus over-limit]', JSON.stringify(ignoredBubble), '/ anim:', await js(`window.MGW_DEBUG.info.anim`),
+    '/ affection', affBefore, '->', affIgnored, '/ marks:', distractedMarks);
+  check('超限弹「……」', ignoredBubble.hidden === false && ignoredBubble.text === '……', JSON.stringify(ignoredBubble));
+  check('超限播 annoyed', (await js(`window.MGW_DEBUG.info.anim`)) === 'annoyed');
+  check('超限扣 ' + nagPenalty + ' 好感', affIgnored === affBefore - nagPenalty, affBefore + ' -> ' + affIgnored);
+  check('已给主进程打摸鱼标记（结算打折的依据）', distractedMarks === 1, distractedMarks);
+
+  // 再烦一次：仍然「……」+ 再扣一次（不是扣完就沉默）
+  await js(`window.MGW_DEBUG.tapResult(); true`);
+  await wait(250);
+  check('再次超限仍弹「……」', (JSON.parse(await bubbleOf())).text === '……');
+  check('再次超限再扣 ' + nagPenalty + ' 好感',
+    (await js(`window.MGW_DEBUG.save.affection`)) === affIgnored - nagPenalty,
+    affIgnored + ' -> ' + (await js(`window.MGW_DEBUG.save.affection`)));
+  check('摸鱼标记不重复发送', distractedMarks === 1, distractedMarks);
+
+  // 换下一个番茄：计数清零，重新从「劝专注」开始；额度再次用尽时会重新打标记
+  pushState({ phase: 'break', running: true, remaining: 240, duration: 300, progress: 0.2 });
+  await wait(200);
+  pushState({ phase: 'work', running: true, remaining: 900, duration: 1500, progress: 0.4 });
+  await wait(250);
+  await js(`window.MGW_DEBUG.tapResult(); true`);
+  await wait(200);
+  const freshBubble = JSON.parse(await bubbleOf());
+  console.log('[focus 新番茄]', JSON.stringify(freshBubble));
+  check('换番茄计数清零（回到劝专注，不是「……」）',
+    freshBubble.hidden === false && freshBubble.text !== '……', JSON.stringify(freshBubble));
+  for (let i = 1; i < nagLimit; i++) { await js(`window.MGW_DEBUG.tapResult(); true`); await wait(80); }
+  await js(`window.MGW_DEBUG.tapResult(); true`);
+  await wait(250);
+  check('新番茄额度用尽后重新打标记（累计 2 次）', distractedMarks === 2, distractedMarks);
+
   /* ---- 2. 暂停：沙漏保留但静止退色（不再凭空消失，"暂停"和"结束"要能区分） ---- */
   pushState({ phase: 'work', running: false, remaining: 900, duration: 1500, progress: 0.4 });
   await wait(400);
@@ -326,6 +404,17 @@ app.whenReady().then(async () => {
   const idle = await hourglass();
   console.log('[idle] hourglass:', idle);
   check('结束后沙漏隐藏', idle.includes('"hidden":true'), idle);
+
+  /* ---- 3b. 非专注时摸头照旧：+好感 + 普通台词（专注那套规矩不外溢） ---- */
+  const petAff = await js(`window.MGW_CONFIG.petting.affection`);
+  const affIdleBefore = await js(`window.MGW_DEBUG.save.affection`);
+  await js(`window.MGW_DEBUG.tapResult(); true`);
+  await wait(250);
+  const idleTapBubble = JSON.parse(await bubbleOf());
+  console.log('[idle tap]', JSON.stringify(idleTapBubble), '/ affection', affIdleBefore, '->', await js(`window.MGW_DEBUG.save.affection`));
+  check('非专注摸头照旧弹气泡', idleTapBubble.hidden === false && idleTapBubble.text.length > 0, JSON.stringify(idleTapBubble));
+  check('非专注摸头 +' + petAff + ' 好感', (await js(`window.MGW_DEBUG.save.affection`)) === affIdleBefore + petAff,
+    affIdleBefore + ' -> ' + (await js(`window.MGW_DEBUG.save.affection`)));
 
   /* ---- 4. 结算评价台词（游戏 → 桌宠，对象载荷） ---- */
   win.webContents.send('pet:react', { kind: 'roast', score: 30, best: false });
