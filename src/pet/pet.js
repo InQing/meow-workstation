@@ -23,10 +23,23 @@
   let bubbleTimer = null;
   let lastInteraction = Date.now();
   let lastChatty = Date.now();
+  // 番茄专注进行中（phase=work 且 running）：气泡一律不弹，专注结束后也不补弹
+  let pomoWorking = false;
 
   /* ---------------- 台词 ---------------- */
 
-  function sayText(text, ms = 2400) {
+  /** 立刻收起气泡（进入专注时用：正挂着的也不留） */
+  function hideBubble() {
+    if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null; }
+    bubbleEl.classList.add('hidden');
+  }
+
+  /**
+   * 显示气泡。专注进行中静默（不弹、不排队）；
+   * 「工作状态切换本身」的反馈（暂停/继续、番茄完成结算）用 opts.force 放行
+   */
+  function sayText(text, ms = 2400, opts) {
+    if (pomoWorking && !(opts && opts.force)) return;
     bubbleEl.textContent = text;
     bubbleEl.classList.remove('hidden');
     if (bubbleTimer) clearTimeout(bubbleTimer);
@@ -437,14 +450,26 @@
   function onPomoState(p) {
     updateHourglass(p);
 
+    // 专注进行中：气泡静默。标志先更新，下面的暂停反馈（此刻 running=false）才不会被误拦
+    const working = p.phase === 'work' && p.running;
+    const wasWorking = pomoWorking;
+    pomoWorking = working;
+
     // 暂停 / 继续时给一句反馈，避免"进度条突然没了"造成的困惑
     const paused = p.phase !== 'idle' && !p.running;
+    let resumedNow = false;
     if (prevPomo) {
       const wasPaused = prevPomo.phase !== 'idle' && !prevPomo.running;
       if (paused && !wasPaused) sayText('⏸ 番茄已暂停', 2000);
-      else if (!paused && p.running && wasPaused) sayText('▶ 继续专注', 1600);
+      else if (!paused && p.running && wasPaused) {
+        sayText('▶ 继续专注', 1600, { force: true });   // 专注刚恢复，放行这一句
+        resumedNow = true;
+      }
     }
     prevPomo = { phase: p.phase, running: p.running };
+
+    // 刚进入专注：把还挂着的气泡立刻收掉（「继续专注」这句除外，它刚弹出来）
+    if (working && !wasWorking && !resumedNow) hideBubble();
 
     // 状态机：专注中趴窝陪工，休息/结束回待机
     if (p.phase === 'work' && p.running) {
@@ -470,7 +495,8 @@
       if (d.phase === 'work') {
         StateMachine.once('happy');
         const r = d.reward || {};
-        sayText(`🍅 番茄完成 +${r.coins}金币 +${r.tickets}券`, 3600);
+        // 主进程「先发 pomodoro:done 再切休息」，此刻标志还是专注中 → 结算必须放行
+        sayText(`🍅 番茄完成 +${r.coins}金币 +${r.tickets}券`, 3600, { force: true });
       } else if (d.phase === 'break') {
         say('idle', 3000);
       }
@@ -593,8 +619,8 @@
     });
 
     startIdleWatch();
+    await syncPomodoro();   // 先对齐番茄状态：专注中重启（崩溃重载）也不该冒打招呼气泡
     say('idle', 3000);
-    syncPomodoro();
 
     // 托盘「调试」菜单调用
     window.MGW_DEBUG = {

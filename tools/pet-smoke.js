@@ -4,6 +4,7 @@
  *
  * 用途：
  *   - 番茄钟状态 → 左侧沙漏的显隐 / 暂停灰化 / 剩余时间小字
+ *   - 专注中气泡静默：工作时间不弹气泡，番茄完成结算放行
  *   - 缩放（桌宠大小）→ 窗口尺寸、画布尺寸、持久化
  *   - 布局基准：气泡与按钮栏按「猫」居中（左右留白不等宽，按窗口居中会偏）
  *   - 拖动窗口 → 尺寸恒定（老大报过的漂移回归）
@@ -197,9 +198,41 @@ app.whenReady().then(async () => {
   check('运行态未标记暂停', running.includes('"paused":"0"') && running.includes('"phase":"work"'), running);
   await shot('pet-01-work');
 
+  /* ---- 1a. 专注中气泡静默（需求：番茄工作时间内不弹气泡） ---- */
+  const bubbleOf = () => js(`(()=>{const e=document.getElementById('bubble');return JSON.stringify({hidden:e.classList.contains('hidden'),text:e.textContent});})()`);
+  // 此刻是 work+running（上面刚推的状态）：打招呼 / 闲聊 / 摸头…任何 say 都不该冒泡
+  await js(`window.MGW_DEBUG.say('idle', 4000); true`);
+  await wait(250);
+  const bubWorking = JSON.parse(await bubbleOf());
+  console.log('[bubble 专注中]', JSON.stringify(bubWorking));
+  check('专注中 say 被静默（不弹气泡）', bubWorking.hidden === true, JSON.stringify(bubWorking));
+
+  // 转 idle 让气泡弹出来，再切回专注：正挂着的气泡必须被立刻收掉
+  pushState({ phase: 'idle', running: false, remaining: 0, duration: 0, progress: 0 });
+  await wait(250);
+  await js(`window.MGW_DEBUG.say('idle', 4000); true`);
+  await wait(250);
+  const bubIdle = JSON.parse(await bubbleOf());
+  pushState({ phase: 'work', running: true, remaining: 900, duration: 1500, progress: 0.4 });
+  await wait(300);
+  const bubStart = JSON.parse(await bubbleOf());
+  console.log('[bubble 进入专注]', JSON.stringify(bubIdle), '->', JSON.stringify(bubStart));
+  check('非专注时气泡正常弹', bubIdle.hidden === false, JSON.stringify(bubIdle));
+  check('点开始专注后气泡立刻收起', bubStart.hidden === true, JSON.stringify(bubStart));
+
+  // 番茄完成结算：主进程「先发 done 再切休息」，此刻标志还是专注中 → 必须放行
+  win.webContents.send('pomodoro:done', { phase: 'work', reward: { coins: 30, tickets: 1 }, total: 3 });
+  await wait(300);
+  const bubDone = JSON.parse(await bubbleOf());
+  console.log('[bubble 番茄完成]', JSON.stringify(bubDone));
+  check('番茄完成结算气泡放行', bubDone.hidden === false && bubDone.text.includes('番茄完成'), JSON.stringify(bubDone));
+
   /* ---- 1b. 布局基准：气泡 / 按钮栏挂的是「猫」的中线，不是窗口中线 ---- */
   // 左右留白不等宽（左边 4.5 格站沙漏、右边 1.75 格），按窗口居中会整体往右偏。
   // ⚠️ 必须等沙漏 / 气泡都渲染出来再量：它们是 display:none 时矩形全是 0。
+  // ⚠️ 专注中气泡被 1a 的闸门静默，这里先切到休息态（沙漏同样可见）再量
+  pushState({ phase: 'break', running: true, remaining: 240, duration: 300, progress: 0.2 });
+  await wait(300);
   await js(`window.MGW_DEBUG.say('idle', 6000); true`);
   await wait(250);
   const layout = JSON.parse(await js(`(() => {

@@ -193,6 +193,8 @@ complete(break) → 只通知 → phase = 'idle'
 
 `remaining` 是整数秒（给文字），`progress` 是 0~1 浮点（给绘制）——**别用整数秒自己做除法算进度**，会丢精度导致沙漏几乎不动。
 
+**专注中气泡静默**（`pet/pet.js`）：`pomodoro:state` 到达时维护 `pomoWorking = phase === 'work' && running`，唯一的气泡出口 `sayText()` 在它为真时直接 `return` —— 不弹、也不排队补弹（避免专注结束一股脑儿冒出来）；刚进入专注时会 `hideBubble()` 把正挂着的那条立刻收掉，启动打招呼也挪到 `syncPomodoro()` 之后（专注中崩溃重载不会冒泡）。只放行两处「状态切换本身」的反馈：暂停 / 继续（继续那句带 `{force:true}`，因为此刻标志已是专注中），以及 `pomodoro:done` 的番茄完成结算（主进程先发 done 再 `start('break')`，到手时标志仍为专注中，必须放行）。⚠️ 暂停（`running=false`）不算专注，气泡照常 —— 否则「⏸ 番茄已暂停」这句自己就被闸门拦掉了。
+
 ---
 
 ## 七、尺寸：`petMetrics()` 是唯一真理源
@@ -251,7 +253,7 @@ petMetrics(scale) → { scale, padL, padR, catW, offsetX, offsetY, width, height
   → 250ms tick 广播 'pomodoro:state'
   → pet: updateHourglass() 重画沙漏（上半沙 = sqrt(progress)）
   → 到点: complete() → save.patchSave(累加金币/券/好感) → Notification
-        → 广播 'pomodoro:done'（pet 播 happy 动画 + 台词）
+        → 广播 'pomodoro:done'（pet 播 happy 动画 + 结算台词：专注中唯一放行的气泡）
         → 自动 start('break')
 ```
 
@@ -274,7 +276,7 @@ panel 子游戏跑完一局
 | 类型 | 位置 | 需要 Electron | 盯什么 |
 |---|---|---|---|
 | 逻辑自测 | `tools/*-selftest.js` | ❌ | 概率、数值、判定、结算 patch |
-| UI 冒烟 | `tools/panel-smoke.js`、`pet-smoke.js` | ✅ | 真窗真 DOM、tab 切换、结算卡放得下、拖动尺寸恒定 |
+| UI 冒烟 | `tools/panel-smoke.js`、`pet-smoke.js` | ✅ | 真窗真 DOM、tab 切换、结算卡放得下、拖动尺寸恒定、专注中气泡静默 |
 | 边界探针 | `tools/win-bounds-drift-probe.js` | ✅ | setBounds vs setPosition、取整噪声、反馈回路 |
 
 冒烟脚本的两个通用坑（详见 `~/.workbuddy/skills/electron-ui-smoke`）：
