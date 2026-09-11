@@ -180,3 +180,4 @@ unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/ele
 | -------------------------------------------- | -------------------------- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 进程模型、IPC 通道、数据流、四条硬约束的来龙去脉 |
 | [docs/PLAN.md](docs/PLAN.md)                 | 待办优先级、素材接入路径、已知工程债、已砍需求    |
+| [docs/PET-PROMPTS.md](docs/PET-PROMPTS.md)   | 桌宠生图提示词模板（hatch-pet 抄录，中英对照）  |
