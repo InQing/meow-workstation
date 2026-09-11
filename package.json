@@ -9,6 +9,7 @@
     "test": "node tools/gacha-selftest.js && node tools/fish-selftest.js && node tools/reflex-selftest.js && node tools/pomodoro-selftest.js"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "pngjs": "^7.0.0"
   }
 }

@@ -136,7 +136,7 @@ unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/ele
 | `node tools/png2grid.js [图片]`                                  | 生图 PNG → 24×24 字符网格（k-means 提调色板） |
 | `node tools/gencat.js`                                         | 程序化派生猫的全部动画帧 → 输出素材 JSON          |
 
-> 后两个依赖 `pngjs`（尚未写进 `package.json`，见[已知工程债](docs/ROADMAP.md#已知工程债)）。
+> `render-preview.js` 与 `png2grid.js` 依赖 `pngjs`，已写进 `devDependencies`，`npm install` 后即可用。
 
 ### 开发约定
 
