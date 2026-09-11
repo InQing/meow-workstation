@@ -115,7 +115,7 @@
     },
 
     // 鱼干突袭（2026-09-10 定稿；同日复查：出怪更密、单局收益下调）
-    game: {
+    fish: {
       durationSec: 20,       // 一局 20 秒
       targets: {
         fish: { score: 8,   weight: 0.70, aliveMs: 1500 }, // 普通鱼干：停留 1.5s

@@ -8,16 +8,16 @@
  *   点到炸弹：combo 清零 + 桌宠炸毛
  *   结算：金币 = floor(得分 × 0.10)；按得分分档由猫猫夸夸 / 吐槽；记录最高分
  *
- * 全部数值与判定走 src/shared/game.js（已自测），这里只做计时、定位与渲染。
+ * 全部数值与判定走 src/shared/games/fish.js（已自测），这里只做计时、定位与渲染。
  * 音效：无（摸鱼场景，老大要求去音效）。
  */
 (function () {
   const P = window.MGW_Panel;
-  const G = window.MGW_Game;
+  const G = window.MGW_Fish;
 
-  const cfg = () => P.CONFIG.game;
+  const cfg = () => P.CONFIG.fish;
   const ICON = { fish: '🐟', gold: '🐠', bomb: '💣' };
-  /* 结算评价台词（分档 key 与 shared/game.js 的 reactFor 一致） */
+  /* 结算评价台词（分档 key 与 shared/games/fish.js 的 reactFor 一致） */
   const PET_LINE = {
     start: '上吧，鱼干归你',
     shock: '喵啊！炸弹别碰！',

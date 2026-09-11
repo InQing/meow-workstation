@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node tools/gacha-selftest.js && node tools/game-selftest.js && node tools/reflex-selftest.js && node tools/pomodoro-selftest.js"
+    "test": "node tools/gacha-selftest.js && node tools/fish-selftest.js && node tools/reflex-selftest.js && node tools/pomodoro-selftest.js"
   },
   "devDependencies": {
     "electron": "^33.0.0"

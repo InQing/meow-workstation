@@ -8,7 +8,7 @@
  *   测 5 次取平均 → 分档（闪电/敏锐/正常/迟钝/树懒）
  *   金币 = 基础 10 + 破纪录奖金 40 × 第几次破纪录（第 5 次 = 200，封顶 400）
  *
- * 全部数值与判定走 src/shared/reflex.js（已自测），这里只做状态机、计时与渲染。
+ * 全部数值与判定走 src/shared/games/reflex.js（已自测），这里只做状态机、计时与渲染。
  * 计时用 performance.now()；音效：无（摸鱼场景）。
  */
 (function () {
@@ -25,7 +25,7 @@
     sloth: '……醒醒',
   };
 
-  /* 结算评价台词（key 与 shared/reflex.js 的 reactFor 一致） */
+  /* 结算评价台词（key 与 shared/games/reflex.js 的 reactFor 一致） */
   const PET_LINE = {
     start: '手放好，别抢跑',
     foul: '急什么，还没变色呢',

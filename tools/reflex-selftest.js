@@ -2,7 +2,7 @@
  * 反应力测试 —— 纯逻辑自测（不需要 electron / 真实存档）
  *   node tools/reflex-selftest.js
  */
-const R = require('../src/shared/reflex.js');
+const R = require('../src/shared/games/reflex.js');
 const CFG = require('../src/shared/config.js').reflex;
 
 let pass = 0, fail = 0;

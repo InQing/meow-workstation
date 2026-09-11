@@ -154,7 +154,7 @@ app.whenReady().then(async () => {
   console.log('game intro button:', await js(`!!document.querySelector('.page[data-page="game"] .g-cover .btn.big')`));
   await shot('09b-game-intro');
 
-  await js(`window.MGW_CONFIG.game.durationSec = 12; true`);
+  await js(`window.MGW_CONFIG.fish.durationSec = 12; true`);
   await js(`document.querySelector('.page[data-page="game"] .g-cover .btn.big').click(); true`);
   await wait(1500);
   console.log('targets on field:', await js(`document.querySelectorAll('.page[data-page="game"] .target').length`));
@@ -167,7 +167,7 @@ app.whenReady().then(async () => {
   await shot('11-game-hit');
 
   // 把出怪权重改成全炸弹，验证「点到炸弹 → combo 清零 + 桌宠炸毛」
-  await js(`window.MGW_CONFIG.game.targets.fish.weight = 0; window.MGW_CONFIG.game.targets.gold.weight = 0; window.MGW_CONFIG.game.targets.bomb.weight = 1; true`);
+  await js(`window.MGW_CONFIG.fish.targets.fish.weight = 0; window.MGW_CONFIG.fish.targets.gold.weight = 0; window.MGW_CONFIG.fish.targets.bomb.weight = 1; true`);
   await wait(2600);   // 等场上旧目标过期，确保点到的就是炸弹
   console.log('bomb hit:', await js(`(()=>{ const el=document.querySelector('.page[data-page="game"] .target.bomb'); if(!el) return 'no-bomb'; el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); return 'hit-bomb'; })()`));
   await wait(300);
@@ -185,7 +185,7 @@ app.whenReady().then(async () => {
   await shot('13-game-result');
 
   // 第二轮：只出鱼干 + 分档归零 → 猫猫夸夸（praise）
-  await js(`window.MGW_CONFIG.game.durationSec = 3; window.MGW_CONFIG.game.targets.fish.weight = 1; window.MGW_CONFIG.game.targets.bomb.weight = 0; window.MGW_CONFIG.game.react = { praise: 0, ok: 0 }; true`);
+  await js(`window.MGW_CONFIG.fish.durationSec = 3; window.MGW_CONFIG.fish.targets.fish.weight = 1; window.MGW_CONFIG.fish.targets.bomb.weight = 0; window.MGW_CONFIG.fish.react = { praise: 0, ok: 0 }; true`);
   await js(`document.querySelector('.page[data-page="game"] .g-cover .btn.big').click(); true`);
   await wait(1200);
   await js(`(()=>{ for (const el of document.querySelectorAll('.page[data-page="game"] .target')) el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); return true; })()`);
@@ -211,7 +211,7 @@ app.whenReady().then(async () => {
   /* ---- 游戏回归（老大报过的两条：卡在结算页出不去 / 鱼干出在围观位底下） ---- */
   // ① 结算卡片必须整个装进场地。卡片（6 格 + 评价 + 按钮）比 arena 高时会被
   //    arena 的 overflow:hidden 切掉底部按钮 → 卡在结算页点不动「再来一局」。
-  await js(`window.MGW_CONFIG.game.durationSec = 2; true`);
+  await js(`window.MGW_CONFIG.fish.durationSec = 2; true`);
   await js(`document.querySelector('.page[data-page="game"] .g-cover .btn.big').click(); true`);
   await wait(2900);
   const fit = await js(`(() => {
@@ -238,7 +238,7 @@ app.whenReady().then(async () => {
   // ③ 出怪落点避开左下角围观位：注入「交替返回禁区点 / 安全点」，正确的避让会丢掉前者
   await js(`(() => {
     let n = 0;
-    window.MGW_Game.randomSpot = function () {
+    window.MGW_Fish.randomSpot = function () {
       n++;
       return (n % 2 === 1) ? { x: 3, y: 87 } : { x: 60, y: 40 };
     };
@@ -250,7 +250,7 @@ app.whenReady().then(async () => {
   await wait(400);
   await enterGame('鱼干突袭');
   await wait(300);
-  await js(`window.MGW_CONFIG.game.durationSec = 3; true`);
+  await js(`window.MGW_CONFIG.fish.durationSec = 3; true`);
   await js(`document.querySelector('.page[data-page="game"] .g-cover .btn.big').click(); true`);
   await wait(2700);
   console.log('spawn spots avoid watcher:', await js(`(() => {

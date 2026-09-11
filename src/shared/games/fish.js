@@ -13,7 +13,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.MGW_Game = factory();
+  else root.MGW_Fish = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   const TYPES = ['fish', 'gold', 'bomb'];
 

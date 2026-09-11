@@ -1,14 +1,14 @@
 /**
- * 鱼干突袭 · 纯逻辑自测（node tools/game-selftest.js，不需要 electron）
+ * 鱼干突袭 · 纯逻辑自测（node tools/fish-selftest.js，不需要 electron）
  * 校验：出怪权重 / 存留时长 / combo 倍率 / 炸弹惩罚 / 金币结算 / 评价分档 / 落盘 patch
  * 另含「初版 vs 现在」的密度与收益对比（老大要求：目标更密，但单局收益更低）
  */
 const path = require('path');
 
 const config = require(path.join(__dirname, '..', 'src', 'shared', 'config.js'));
-const G = require(path.join(__dirname, '..', 'src', 'shared', 'game.js'));
+const G = require(path.join(__dirname, '..', 'src', 'shared', 'games', 'fish.js'));
 
-const cfg = config.game;
+const cfg = config.fish;
 
 let fails = 0;
 function check(name, ok, extra) {

@@ -51,14 +51,13 @@ src/
   shared/                纯逻辑层（UMD，node 可 require 自测）
     config.js            全局数值配置 —— 改数值只改这里
     gacha.js             抽卡
-    game.js              鱼干突袭
-    reflex.js            反应力测试
+    games/               小游戏逻辑：fish.js（鱼干突袭）、reflex.js（反应力测试）
     audio.js             音效（当前全局关闭）
   main/                  主进程模块（存档等）
   pet/                   桌宠窗口（index.html / pet.js / pet.css / catRenderer.js）
   panel/                 面板窗口
     tabs/                图鉴 / 抽卡 / 游戏中心 / 设置
-    tabs/games/          具体游戏：fish.js、reflex.js
+    tabs/games/          游戏 UI：fish.js、reflex.js（与 shared/games/ 一一对应）
 assets/                  台词池 speech.json、图案素材
 tools/                   自测与冒烟脚本
 ```
