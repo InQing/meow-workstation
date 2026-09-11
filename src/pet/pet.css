@@ -1,0 +1,191 @@
+/**
+ * 桌宠窗口样式
+ * ⚠️ 尺寸全部走 --s（一格素材的像素数），改 --s 就能整体缩放：
+ *    窗口尺寸由 pet.js 按 config.petMetrics() 算出，并同步给主进程 setBounds。
+ *
+ * ⚠️ 布局基准：左右留白不等宽（左边站番茄沙漏），所以气泡和按钮栏挂在
+ *    --padl / --padr 之间居中 —— 那是「猫」的中线，不是窗口的中线。
+ *    别改回 left:0; right:0，那样会整体往右偏。
+ *
+ * ⚠️⚠️ 透明窗口上有两条硬规矩，改样式前先读（都是拖动漂移换来的）：
+ *   1. 不用 transform 做任何居中/缩放 —— 一律 margin auto / flex。
+ *   2. 不加任何 transition / animation / opacity 渐变 —— 过渡中的元素会被提升成独立
+ *      合成层，窗口被拖动时它会跟不上，表现为"底部图标/手柄离猫越来越远"。
+ *      所以下面显隐一律用 visibility 直接切，不淡入淡出。
+ *      （拖动漂移的主因已在主进程修掉：pet:move 每帧用 setBounds 把宽高钉死；
+ *        样式这边是第二道保险，别再往回加动效。）
+ */
+:root { --s: 8px; --padl: 36px; --padr: 14px; }   /* 默认 8 格 → 窗口 242×280 */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body { position: relative; }
+body.resizing { cursor: nwse-resize; }
+
+#cat {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+.bubble {
+  position: absolute;
+  top: calc(var(--s) * 0.75);
+  left: var(--padl);
+  right: var(--padr);
+  margin-left: auto;
+  margin-right: auto;
+  width: fit-content;
+  max-width: calc(var(--s) * 25);
+  padding: calc(var(--s) * 0.75) calc(var(--s) * 1.25);
+  background: rgba(255, 252, 245, 0.96);
+  border: max(1px, calc(var(--s) * 0.25)) solid #3a2a1e;
+  border-radius: calc(var(--s) * 1.25);
+  color: #3a2a1e;
+  font-size: calc(var(--s) * 1.5);
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: calc(var(--s) * 0.25) calc(var(--s) * 0.25) 0 rgba(58, 42, 30, 0.25);
+}
+
+.bubble.hidden { display: none; }
+
+/* 番茄沙漏：站左侧留白，竖直摆放（气泡与任务进度条曾经挤在头顶，改成左右分家） */
+.hourglass {
+  position: absolute;
+  left: 0;
+  width: var(--padl);
+  top: calc(var(--s) * 14.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--s) * 0.5);
+  pointer-events: none;
+}
+
+.hourglass.hidden { display: none; }
+
+.hourglass canvas {
+  display: block;
+  width: calc(var(--s) * 3.5);
+  height: calc(var(--s) * 6);
+}
+
+/* 剩余时间小字：透明窗口上必须自带底衬，否则任何壁纸都可能把它吃掉。
+   等宽 + tabular-nums → 秒数跳动时宽度不抖。 */
+.hourglass-text {
+  padding: calc(var(--s) * 0.125) calc(var(--s) * 0.375);
+  background: rgba(255, 252, 245, 0.94);
+  border: max(1px, calc(var(--s) * 0.2)) solid #3a2a1e;
+  border-radius: calc(var(--s) * 0.75);
+  color: #3a2a1e;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: calc(var(--s) * 1.1);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+/* 暂停：整组退色（沙漏本体的灰化由 canvas 自己画） */
+.hourglass[data-paused="1"] .hourglass-text {
+  background: rgba(238, 232, 222, 0.92);
+  border-color: #8a7f74;
+  color: #8a7f74;
+}
+
+/* 悬停出现的迷你按钮栏（visibility 直切，不做淡入淡出 → 不产生合成层） */
+.actions {
+  position: absolute;
+  bottom: calc(var(--s) * 0.75);
+  left: var(--padl);
+  right: var(--padr);
+  display: flex;
+  gap: calc(var(--s) * 0.75);
+  justify-content: center;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body:hover .actions {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.actions button {
+  width: calc(var(--s) * 3.5);
+  height: calc(var(--s) * 3.5);
+  padding: 0;
+  font-size: calc(var(--s) * 1.75);
+  line-height: 1;
+  background: rgba(255, 252, 245, 0.95);
+  border: max(1px, calc(var(--s) * 0.25)) solid #3a2a1e;
+  border-radius: calc(var(--s) * 1);
+  cursor: pointer;
+  box-shadow: calc(var(--s) * 0.25) calc(var(--s) * 0.25) 0 rgba(58, 42, 30, 0.25);
+}
+
+.actions button:hover {
+  background: #ffe9c4;
+}
+
+.actions button:active {
+  background: #ffe9c4;
+  box-shadow: calc(var(--s) * 0.125) calc(var(--s) * 0.125) 0 rgba(58, 42, 30, 0.25);
+}
+
+/* 右下角：拖动调整桌宠大小 */
+.grip {
+  position: absolute;
+  right: calc(var(--s) * 0.5);
+  bottom: calc(var(--s) * 0.5);
+  width: calc(var(--s) * 3);
+  height: calc(var(--s) * 3);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: calc(var(--s) * 0.5);
+  visibility: hidden;
+  pointer-events: none;
+  cursor: nwse-resize;
+}
+
+body:hover .grip { visibility: visible; pointer-events: auto; }
+
+.grip i {
+  width: calc(var(--s) * 1.25);
+  height: calc(var(--s) * 1.25);
+  border-right: max(2px, calc(var(--s) * 0.3)) solid #3a2a1e;
+  border-bottom: max(2px, calc(var(--s) * 0.3)) solid #3a2a1e;
+  border-bottom-right-radius: calc(var(--s) * 0.4);
+  box-shadow: calc(var(--s) * 0.45) calc(var(--s) * 0.45) 0 -1px rgba(255, 252, 245, 0.75);
+}
+
+/* 拖动调大小时显示的实时数值 */
+.size-tip {
+  position: absolute;
+  right: calc(var(--s) * 0.5);
+  bottom: calc(var(--s) * 3.5);
+  padding: calc(var(--s) * 0.25) calc(var(--s) * 0.75);
+  border: max(1px, calc(var(--s) * 0.2)) solid #3a2a1e;
+  border-radius: calc(var(--s) * 0.75);
+  background: rgba(255, 252, 245, 0.96);
+  color: #3a2a1e;
+  font-size: calc(var(--s) * 1.25);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.size-tip.hidden { display: none; }

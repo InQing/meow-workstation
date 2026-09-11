@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Test artifacts (smoke screenshots)
+tools/_smoke/
+
+# WorkBuddy session data — AI collaboration notes, not for publishing
+.workbuddy/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local
+.env.*.local

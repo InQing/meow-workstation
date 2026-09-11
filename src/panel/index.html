@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:" />
+  <title>喵工位 · 面板</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1 class="brand"><span class="logo">🐱</span>喵工位</h1>
+      <div class="res">
+        <span class="chip" title="金币">🪙<b id="res-coins">0</b></span>
+        <span class="chip" title="抽卡券">🎟️<b id="res-tickets">0</b></span>
+        <span class="chip" title="好感度">💛<b id="res-affection">Lv1</b></span>
+        <span class="chip" title="今日 / 累计番茄">🍅<b id="res-tomato">0 / 0</b></span>
+      </div>
+    </header>
+
+    <div class="main">
+      <nav class="nav">
+        <button class="nav-btn active" data-tab="collection"><i>📖</i>图鉴</button>
+        <button class="nav-btn" data-tab="draw"><i>🎴</i>抽卡</button>
+        <button class="nav-btn" data-tab="game"><i>🐟</i>游戏</button>
+        <button class="nav-btn" data-tab="settings"><i>⚙️</i>设置</button>
+      </nav>
+      <div class="pages">
+        <section class="page active" data-page="collection"></section>
+        <section class="page" data-page="draw"></section>
+        <section class="page" data-page="game"></section>
+        <section class="page" data-page="settings"></section>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="overlay">
+    <div class="sheet" id="sheet"></div>
+  </div>
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="../shared/config.js"></script>
+  <script src="../shared/gacha.js"></script>
+  <script src="../shared/game.js"></script>
+  <script src="../shared/reflex.js"></script>
+  <script src="panel-core.js"></script>
+  <script src="tabs/collection.js"></script>
+  <script src="tabs/draw.js"></script>
+  <script src="tabs/games/fish.js"></script>
+  <script src="tabs/games/reflex.js"></script>
+  <script src="tabs/game.js"></script>
+  <script src="tabs/settings.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

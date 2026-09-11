@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "rarityOrder": ["N", "R", "SR", "SSR"],
+  "_note": "卡面图案（猫 + 姿势 + 配件 + 背景）暂未接入，渲染层只画占位。后续按 cat 引 cats/*.json、按 accessory 引 accessories/*.json 即可，schema 字段已预留。cat=white / rainbow 等暂无素材，先占位。",
+  "cards": [
+    { "id": "orange_worker", "name": "橘猫·打工人", "rarity": "N", "cat": "orange", "pose": "work",  "accessory": null,            "bg": "#fdf0dc", "desc": "工位常驻，陪工第一名。",             "sparkle": false },
+    { "id": "cow_nap",       "name": "奶牛猫·午睡", "rarity": "N", "cat": "cow",    "pose": "sleep", "accessory": null,            "bg": "#eef1f5", "desc": "午睡冠军，呼噜声像小马达。",         "sparkle": false },
+    { "id": "black_night",   "name": "黑猫·夜巡",   "rarity": "N", "cat": "black",  "pose": "walk",  "accessory": null,            "bg": "#e8e6ef", "desc": "月色里的一团影子，专治加班。",       "sparkle": false },
+    { "id": "tabby_patrol",  "name": "狸花猫·巡逻", "rarity": "N", "cat": "tabby",  "pose": "walk",  "accessory": null,            "bg": "#f0ece1", "desc": "键盘边缘来回巡逻，一只虫都不放过。", "sparkle": false },
+    { "id": "calico_tea",    "name": "三花猫·下午茶", "rarity": "N", "cat": "calico", "pose": "idle", "accessory": null,           "bg": "#fdeaf0", "desc": "三点整，准时端出看不见的奶茶。",     "sparkle": false },
+    { "id": "white_daze",    "name": "白猫·发呆",   "rarity": "N", "cat": "white",  "pose": "idle",  "accessory": null,            "bg": "#f7f7f7", "desc": "盯着屏幕发呆，其实在想小鱼干。",     "sparkle": false },
+
+    { "id": "orange_lucky",  "name": "招财橘猫",    "rarity": "R", "cat": "orange", "pose": "happy", "accessory": "lucky_paw",     "bg": "#fff3c4", "desc": "爪子一举就是招财，工资自己长出来。", "sparkle": false },
+    { "id": "black_wizard",  "name": "巫师黑猫",    "rarity": "R", "cat": "black",  "pose": "idle",  "accessory": "wizard_hat",    "bg": "#e3ddf6", "desc": "帽檐下念咒，让 bug 自己消失。",       "sparkle": false },
+    { "id": "calico_wreath", "name": "花环三花",    "rarity": "R", "cat": "calico", "pose": "idle",  "accessory": "flower_wreath", "bg": "#fde8ee", "desc": "项上花环，是今日份的好心情。",       "sparkle": false },
+    { "id": "tabby_scarf",   "name": "红围巾狸花",  "rarity": "R", "cat": "tabby",  "pose": "idle",  "accessory": "red_scarf",     "bg": "#fbe7e2", "desc": "围巾一裹，冬天也能准时上班。",       "sparkle": false },
+    { "id": "white_shades",  "name": "墨镜白猫",    "rarity": "R", "cat": "white",  "pose": "idle",  "accessory": "shades",        "bg": "#eaeaf0", "desc": "墨镜一戴，谁都不爱，很酷很摸鱼。",   "sparkle": false },
+
+    { "id": "space_cat",     "name": "太空猫",      "rarity": "SR", "cat": "orange", "pose": "space", "accessory": "helmet",      "bg": "#dbe7ff", "desc": "离开工位，去更远的工位。",           "sparkle": false },
+    { "id": "student_cat",   "name": "学生猫",      "rarity": "SR", "cat": "tabby",  "pose": "study", "accessory": "glasses",     "bg": "#e8f0ff", "desc": "笔记比命长，deadline 比命短。",      "sparkle": false },
+    { "id": "lion_cat",      "name": "舞狮猫",      "rarity": "SR", "cat": "calico", "pose": "dance", "accessory": "lion_head",   "bg": "#ffe7d6", "desc": "咚锵咚锵，把霉运都赶走。",           "sparkle": false },
+    { "id": "chef_cat",      "name": "主厨猫",      "rarity": "SR", "cat": "cow",    "pose": "cook",  "accessory": "chef_hat",    "bg": "#fff0e6", "desc": "今日特供：小鱼干全席。",             "sparkle": false },
+
+    { "id": "rainbow_cat",   "name": "彩虹猫",      "rarity": "SSR", "cat": "rainbow", "pose": "happy", "accessory": "rainbow",   "bg": "#ffeaf6", "desc": "踩过雨后的水坑，身上就挂了一道彩虹。", "sparkle": true },
+    { "id": "aju_cat",       "name": "阿橘",        "rarity": "SSR", "cat": "orange",  "pose": "idle",  "accessory": null,        "bg": "#ffe9c9", "desc": "彩蛋：机器里住的那只猫。就是本人。",   "sparkle": true }
+  ]
+}

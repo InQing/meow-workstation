@@ -1,0 +1,14 @@
+{
+  "name": "meow-workstation",
+  "productName": "喵工位",
+  "version": "0.1.0",
+  "description": "像素猫桌宠「喵工位」：番茄钟激励干活，集卡 + 桌宠互动 + 小游戏提供摸鱼理由",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tools/gacha-selftest.js && node tools/game-selftest.js && node tools/reflex-selftest.js && node tools/pomodoro-selftest.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
