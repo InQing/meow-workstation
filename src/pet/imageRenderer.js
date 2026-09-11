@@ -2,7 +2,7 @@
  * 图片桌宠渲染器：dataURL（主进程归一化过的 PNG）→ Canvas 铺满「24 格宠物显示盒」
  * 与 CatRenderer 同接口（mount / loadPet / play / once / resize / isOpaqueAt / stop），
  * pet.js 按 currentPet.type 分流，状态机无感知。
- * v1 静态：状态只决定画哪张图；动效（含 GIF）留待后续，接口不变。
+ * v1 静态：状态只决定画哪张图；动效扩展方向为图集（spritesheet），接口不变。
  */
 (function () {
   const CONFIG = window.MGW_CONFIG;

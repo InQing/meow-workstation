@@ -166,7 +166,7 @@ save.patchSave({ coins: (st.coins || 0) + delta });   // ✅
 save.patchSave({ coins: delta });                      // ❌ 直接覆盖
 ```
 
-⚠️ `settings.petScale`、`stats.bestReflexMs` / `reflexBreaks` **不在 `DEFAULT_SAVE` 里**，是运行时由功能写入、靠 `mergeDeep` 兜住的新键。加新键时记得补进 `DEFAULT_SAVE`（见[工程债](ROADMAP.md#已知工程债)）。
+⚠️ `settings.petScale`、`stats.bestReflexMs` / `reflexBreaks` **不在 `DEFAULT_SAVE` 里**，是运行时由功能写入、靠 `mergeDeep` 兜住的新键。加新键时记得补进 `DEFAULT_SAVE`（见[工程债](PLAN.md#已知工程债)）。
 
 **乐观更新**（`panel-core.js` 的 `applyPatch`）：先本地 `mergeDeep`（防连点读到旧值），再用主进程返回的快照覆盖。抽屉式的写盘会慢一拍，不先本地合并的话连点抽卡会丢次数。
 
