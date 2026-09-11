@@ -10,6 +10,7 @@
  *   - 布局基准：气泡与按钮栏按「猫」居中（左右留白不等宽，按窗口居中会偏）
  *   - 拖动窗口 → 尺寸恒定（老大报过的漂移回归）
  *   - 台词 / 状态机联动
+ *   - 系统空闲联动：离开静默 / 打盹、回来打招呼（专注中换 backWork 台词）
  * 会 mock 掉全部 IPC（内存档，绝不碰 userData），截图到 tools/_smoke/pet-*.png。
  * 仅供开发期自测，不属于产品代码。
  */
@@ -114,6 +115,10 @@ ipcMain.on('pet:move', (_e, offX, offY) => {
 });
 let pomoState = { phase: 'idle', running: false, remaining: 0, duration: 0, progress: 0 };
 ipcMain.handle('pomodoro:get', () => pomoState);
+
+// 在场状态 mock（启动时兜底拉取用；用例里直接 send 'presence:state' 驱动）
+const presenceState = { state: 'active', idleSec: 0 };
+ipcMain.handle('presence:get', () => presenceState);
 
 const logs = [];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -579,6 +584,69 @@ app.whenReady().then(async () => {
   console.log('catRenderer state:', await js(`JSON.stringify(window.CatRenderer.getState())`));
   if (backToIdle) check('stretch 播完回 idle', true);
   else console.log('SKIP stretch 播完断言：rAF 被环境节流时不适用（本次 raf ticks =', await js(`window.__raf`), '）');
+
+  /* ---- 9. 系统空闲联动：离开安静 / 打盹，回来打招呼（专注中换说法） ---- */
+  console.log('\n--- 9. presence ---');
+  const SPEECH = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'speech.json'), 'utf-8'));
+  const presenceEv = (state, prev, awayMs) => win.webContents.send('presence:state', { state, prev, idleSec: 0, awayMs: awayMs || 0 });
+  const sentinel = `(()=>{const e=document.getElementById('bubble');e.textContent='__SENTINEL__';e.classList.add('hidden');return true;})()`;
+
+  // 非专注：离开 → 气泡静默（哨兵文本原样不动，说明 say 没执行）
+  pushState({ phase: 'idle', running: false, remaining: 0, duration: 0, progress: 0 });
+  await wait(250);
+  await js(sentinel);
+  presenceEv('away', 'active', 0);
+  await wait(200);
+  await js(`window.MGW_DEBUG.say('idle', 5000); true`);
+  await wait(250);
+  const awayBubble = JSON.parse(await bubbleOf());
+  console.log('[presence away]', JSON.stringify(awayBubble));
+  check('离开后气泡静默（say 不弹、哨兵原样）', awayBubble.hidden === true && awayBubble.text === '__SENTINEL__', JSON.stringify(awayBubble));
+
+  // 更久 → 猫打盹
+  presenceEv('sleeping', 'away', 0);
+  await wait(250);
+  const sleepAnim = await js(`window.MGW_DEBUG.info.anim`);
+  console.log('[presence sleeping] anim:', sleepAnim);
+  check('长时间离开 → 猫打盹（sleep）', sleepAnim === 'sleep', sleepAnim);
+
+  // 回来：伸懒腰 + 招呼台词（≥ sleepSec 用 backLong 池）
+  presenceEv('active', 'sleeping', 20 * 60 * 1000);
+  await wait(300);
+  const backBubble = JSON.parse(await bubbleOf());
+  const backAnim = await js(`window.MGW_DEBUG.info.anim`);
+  console.log('[presence back]', JSON.stringify(backBubble), '/ anim:', backAnim);
+  check('回来先伸懒腰', backAnim === 'stretch', backAnim);
+  check('回来弹招呼气泡', backBubble.hidden === false && backBubble.text.length > 0, JSON.stringify(backBubble));
+  check('长离开用 backLong 台词池', !!SPEECH.backLong && SPEECH.backLong.includes(backBubble.text), backBubble.text);
+
+  // 短暂离开（≥ awaySec 但 < sleepSec）用 backSoon 池
+  presenceEv('away', 'active', 0);
+  await wait(200);
+  presenceEv('active', 'away', 3 * 60 * 1000);
+  await wait(300);
+  const shortBubble = JSON.parse(await bubbleOf());
+  console.log('[presence short back]', JSON.stringify(shortBubble));
+  check('短暂离开回来用 backSoon 台词池', !!SPEECH.backSoon && SPEECH.backSoon.includes(shortBubble.text), shortBubble.text);
+
+  // 专注中：离开不切睡（保持 work）；回来打招呼但换「继续工作」台词（force 放行）
+  pushState({ phase: 'work', running: true, remaining: 900, duration: 1500, progress: 0.4 });
+  await wait(250);
+  presenceEv('sleeping', 'active', 0);
+  await wait(250);
+  const focusSleepAnim = await js(`window.MGW_DEBUG.info.anim`);
+  console.log('[presence focus sleeping] anim:', focusSleepAnim);
+  check('专注中长时间离开不切睡（保持 work）', focusSleepAnim === 'work', focusSleepAnim);
+  presenceEv('active', 'sleeping', 20 * 60 * 1000);
+  await wait(300);
+  const workBack = JSON.parse(await bubbleOf());
+  console.log('[presence focus back]', JSON.stringify(workBack));
+  check('专注中回来也打招呼（静默规则放行这一句）', workBack.hidden === false && workBack.text.length > 0, JSON.stringify(workBack));
+  check('专注中回来用 backWork 台词池', !!SPEECH.backWork && SPEECH.backWork.includes(workBack.text), workBack.text);
+
+  // 收尾：两段断言后已无 presence 事件，切回 idle（本段是最后一节）
+  pushState({ phase: 'idle', running: false, remaining: 0, duration: 0, progress: 0 });
+  await wait(200);
 
   printLogs();
   console.log(fails === 0 ? 'ALL PASS' : fails + ' FAILED');

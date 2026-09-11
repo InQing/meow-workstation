@@ -10,6 +10,7 @@ const config = require('./src/shared/config.js');
 const save = require('./src/main/save.js');
 const pomodoro = require('./src/main/pomodoro.js');
 const pets = require('./src/main/pets.js');
+const presence = require('./src/main/presence.js');
 const PetAssets = require('./src/shared/petAssets.js');
 
 let petWin = null;
@@ -376,6 +377,10 @@ function registerIpc() {
   pm = pomodoro.init({ tooltip: updateTrayTooltip });
   // 渲染层主动查询当前番茄状态（广播丢失/窗口刚起时的兜底）
   ipcMain.handle('pomodoro:get', () => pomodoro.getState());
+
+  // 在场状态（系统空闲联动）：变化时广播；只驱动桌宠表现，不影响番茄钟
+  presence.init({ onState: (ev) => broadcastAll('presence:state', ev) });
+  ipcMain.handle('presence:get', () => presence.getState());   // 渲染层启动 / 回焦时兜底拉取
 }
 
 /** 正在出场的图片桌宠被改动（换槽位图）→ 通知 pet 窗重载 */

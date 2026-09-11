@@ -118,10 +118,12 @@
       distractedPenalty: { coinRate: 0.5, affectionRate: 0.5, tickets: 0 },
     },
 
-    // 失焦摸鱼检测（仅工作阶段生效，同一番茄限 1 次吐槽）
-    away: {
-      pollSec: 5,          // 轮询间隔
-      thresholdSec: 30,    // 失焦满 30s 触发吐槽
+    // 系统空闲联动（presence）：按「系统多久没收到键鼠输入」判定在场状态
+    // 只驱动桌宠表现（离开安静 / 打盹、回来打招呼），不影响番茄钟
+    presence: {
+      pollSec: 5,          // 主进程轮询间隔
+      awaySec: 120,        // 空闲 ≥ 此值 → away（短暂离开：静默）
+      sleepSec: 900,       // 空闲 ≥ 此值 → sleeping（长时间离开：猫打盹）
     },
 
     // 摸头

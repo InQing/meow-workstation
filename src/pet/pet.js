@@ -25,6 +25,8 @@
   let lastChatty = Date.now();
   // 番茄专注进行中（phase=work 且 running）：气泡一律不弹，专注结束后也不补弹
   let pomoWorking = false;
+  // 在场状态（主进程 presence:state 广播）：away / sleeping 时同样静默，回来要打招呼
+  let presence = 'active';
 
   /* ---------------- 台词 ---------------- */
 
@@ -35,11 +37,11 @@
   }
 
   /**
-   * 显示气泡。专注进行中静默（不弹、不排队）；
-   * 「工作状态切换本身」的反馈（暂停/继续、番茄完成结算）用 opts.force 放行
+   * 显示气泡。专注进行中 / 人不在工位时静默（不弹、不排队）；
+   * 「状态切换本身」的反馈（暂停/继续、番茄完成、回来打招呼）用 opts.force 放行
    */
   function sayText(text, ms = 2400, opts) {
-    if (pomoWorking && !(opts && opts.force)) return;
+    if ((pomoWorking || presence !== 'active') && !(opts && opts.force)) return;
     bubbleEl.textContent = text;
     bubbleEl.classList.remove('hidden');
     if (bubbleTimer) clearTimeout(bubbleTimer);
@@ -205,7 +207,8 @@
     lastInteraction = Date.now();
     if (StateMachine.current === 'sleep') {
       StateMachine.setBase('idle');
-      say('idle', 1600);
+      // force：刚被点醒说明人就在跟前，不该被「在场状态还没刷新到 active」拦掉这句
+      say('idle', 1600, { force: true });
     }
   }
 
@@ -514,11 +517,11 @@
     // 刚进入专注：把还挂着的气泡立刻收掉（「继续专注」这句除外，它刚弹出来）
     if (working && !wasWorking && !resumedNow) hideBubble();
 
-    // 状态机：专注中趴窝陪工，休息/结束回待机
+    // 状态机：专注中趴窝陪工，休息/结束回待机（人不在工位就直接睡）
     if (p.phase === 'work' && p.running) {
       if (StateMachine.base !== 'work') StateMachine.setBase('work');
     } else if (p.phase !== 'work' && StateMachine.base === 'work') {
-      StateMachine.setBase('idle');
+      StateMachine.setBase(presence === 'sleeping' ? 'sleep' : 'idle');
     }
   }
 
@@ -529,6 +532,55 @@
       const p = await window.mgw.pomodoroGet();
       if (p) onPomoState(p);
     } catch (e) { /* 主进程没响应就等下一次广播 */ }
+  }
+
+  /* ---------------- 在场状态（系统空闲联动）：离开安静 / 打盹，回来打招呼 ---------------- */
+
+  /**
+   * 主进程按系统空闲时间判定 active / away / sleeping，只在变化时广播。
+   * - 人不在：气泡静默（sayText 已拦）；长时间离开让猫也去睡（专注中保持 work 不动）
+   * - 回来：先从打盹里醒来、伸个懒腰，再按离开时长挑招呼台词；专注中换「继续工作」（force 放行）
+   */
+  function onPresenceState(ev) {
+    if (!ev || !ev.state) return;
+    presence = ev.state;
+
+    if (presence === 'away') return;
+    if (presence === 'sleeping') {
+      if (!pomoWorking) StateMachine.setBase('sleep');
+      return;
+    }
+
+    // 回到 active：只有真的「离开过」才迎接（兜底拉取 / 启动对齐不带 prev，不打招呼）
+    if (!ev.prev || ev.prev === 'active') return;
+    const awayMs = ev.awayMs || 0;
+    if (awayMs < cfg.presence.awaySec * 1000) return;   // 离开太短（如锁屏秒回）不打扰
+
+    lastInteraction = Date.now();   // 人回来了，别让 20 秒闲置逻辑立刻又把猫哄睡
+    if (StateMachine.base === 'sleep') StateMachine.setBase('idle');   // 先从打盹里醒来
+    StateMachine.once('stretch');                                       // 再伸个懒腰
+    if (pomoWorking) {
+      say('backWork', 3200, { force: true });
+      return;
+    }
+    say(awayMs >= cfg.presence.sleepSec * 1000 ? 'backLong' : 'backSoon', 3200, { force: true });
+  }
+
+  /** 主动拉一次在场状态：窗口刚起 / 回焦时兜底（广播丢失也能对齐） */
+  async function syncPresence() {
+    if (!window.mgw.presenceGet) return;
+    try {
+      const p = await window.mgw.presenceGet();
+      if (p) onPresenceState(p);
+    } catch (e) { /* 主进程没响应就等下一次广播 */ }
+  }
+
+  function bindPresence() {
+    window.mgw.onPresenceState(onPresenceState);
+    window.addEventListener('focus', syncPresence);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) syncPresence();
+    });
   }
 
   function bindPomodoro() {
@@ -654,6 +706,7 @@
     bindActions();
     bindGrip();
     bindPomodoro();
+    bindPresence();
     bindSettings();
     bindGameReact();
     // 面板切换 / 删除 / 换槽位图 → 主进程广播，桌宠即时换形象
@@ -667,6 +720,7 @@
 
     startIdleWatch();
     await syncPomodoro();   // 先对齐番茄状态：专注中重启（崩溃重载）也不该冒打招呼气泡
+    await syncPresence();   // 再对齐在场状态：人不在工位时，开场白也要静默
     say('idle', 3000);
 
     // 托盘「调试」菜单调用

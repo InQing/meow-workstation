@@ -13,6 +13,7 @@ flowchart TB
     I["IPC 中枢 registerIpc"]
     PM["pomodoro.js — 唯一时间源"]
     SV["save.js — 存档"]
+    PR["presence.js — 在场状态"]
   end
   PL["preload.js — contextBridge<br/>暴露 window.mgw — 白名单契约层"]
   subgraph PET["桌宠窗口 src/pet/"]
@@ -21,15 +22,17 @@ flowchart TB
   subgraph PAN["面板窗口 src/panel/"]
     PA["panel-core.js 公共层<br/>tabs/ 图鉴 · 抽卡 · 游戏中心 · 设置"]
   end
-  SH["src/shared/ — 纯逻辑 UMD<br/>config · gacha · games/fish · games/reflex"]
+  SH["src/shared/ — 纯逻辑 UMD<br/>config · gacha · games/fish · games/reflex · presence"]
   W --- I
   PM --> I
   SV --> I
+  PR --> I
   I <--> PL
   PL <--> PE
   PL <--> PA
   PE -.-> SH
   PA -.-> SH
+  PR -.-> SH
 ```
 
 | 层 | 位置 | 能做什么 | 不能做什么 |
@@ -70,6 +73,7 @@ flowchart TB
 | `save:load` | 取存档快照 |
 | `save:patch` | 深合并写入，返回**写后快照**（渲染层以此为权威） |
 | `pomodoro:get` | 主动拉番茄状态（广播丢失时的兜底） |
+| `presence:get` | 主动拉在场状态（启动 / 回焦时的兜底） |
 | `pets:list` / `pets:get` | 图片桌宠：列表（带缩略图）/ 取图（dataURL，`thumb` 选项给 128px 缩略图） |
 | `pets:create` / `pets:set-slot` / `pets:clear-slot` / `pets:rename` / `pets:remove` | 图片桌宠：新建 / 换槽位图 / 清槽位 / 改名 / 删除（前两个弹系统文件框，统一返回 `{ok,...}`） |
 | `pets:select` | 切换当前桌宠（内置猫或图片），写存档并广播 `pet:changed` |
@@ -93,6 +97,7 @@ flowchart TB
 |---|---|
 | `pomodoro:state` | 每 250ms 的番茄状态（phase / remaining / duration / progress） |
 | `pomodoro:done` | 阶段结束（带 `reward` 与 `distracted` 标记） |
+| `presence:state` | 在场状态变化（`state` + `prev` + 本次离开时长 `awayMs`） |
 | `settings:changed` | 设置变更 |
 | `panel:navigate` | 切 tab |
 | `pet:react` | 围观反应（`{kind, score, best, game}`） |
@@ -101,6 +106,8 @@ flowchart TB
 **广播注意**：主进程 `broadcastAll()` / `pomodoro.send()` 都**逐窗口 try/catch** —— 某个窗口的 `webContents` 异常不能连累后面的窗口。桌宠靠在最后收到 `pomodoro:state` 来收沙漏，漏一条就卡住。
 
 **图片桌宠的存储与数据流**：上传图片**不进仓库 `assets/`**（`assets:read` 被锁死在仓库内），而是归一化（居中裁方 → 限长边 → PNG 保 alpha）后存 `userData/pets/<petId>/`（`pet.json` + `<槽位>.png`，文件系统即真相）。数据流：面板「桌宠」页 → `pets:*` → 主进程 `src/main/pets.js`（fs + nativeImage）→ 桌宠窗 `pets:get` 拿 dataURL → `src/pet/imageRenderer.js` 画进同一个「24 格显示盒」（与 `catRenderer.js` 同接口，`pet.js` 按 `currentPet.type` 分流）。
+
+**在场状态（presence）**：主进程 `src/main/presence.js` 每 5s 轮询 `powerMonitor.getSystemIdleTime()`，并监听锁屏 / 休眠 / 解锁 / 唤醒 → `shared/presence.js` 判定 active / away / sleeping（**只在变化时**广播 `presence:state`，带本次离开时长 `awayMs`）→ 桌宠 `pet.js`：away / sleeping 气泡静默（`sayText` 闸门，与 `pomoWorking` 同路径）、sleeping 且非专注时切 `sleep`；回到 active 时伸懒腰 + 打招呼（`backSoon` / `backLong`，专注中用 `backWork` 且 `force` 放行）。⚠️ 锁屏期间**跳过轮询**：锁屏动作会把系统空闲清零，照常轮询会把状态误拉回 active。只驱动桌宠表现，不碰番茄钟。
 
 ---
 
@@ -116,6 +123,7 @@ flowchart TB
 | `shared/games/reflex.js` | `MGW_Reflex` | 反应力逻辑 |
 | `shared/audio.js` | `MGW_Audio` | 音效（**零调用**） |
 | `shared/petAssets.js` | `MGW_PetAssets` | 图片桌宠纯逻辑（裁方形 / 校验 / 来源解析） |
+| `shared/presence.js` | `MGW_Presence` | 在场状态纯逻辑（阈值换算 / 变化检测）；仅主进程 require |
 | `pet/catRenderer.js` | `CatRenderer` | 画像素猫 + `isOpaqueAt()`（`stop()` 可停 rAF） |
 | `pet/imageRenderer.js` | `ImageRenderer` | 画图片桌宠（与 CatRenderer 同接口） |
 | `pet/stateMachine.js` | `StateMachine` | 状态机（清单在 `config.petStates`） |

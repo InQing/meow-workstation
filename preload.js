@@ -59,4 +59,8 @@ contextBridge.exposeInMainWorld('mgw', {
   pomodoroDistracted: () => ipcRenderer.send('pomodoro:distracted'),   // 本番茄摸鱼超限 → 结算打折
   onPomodoroState: (cb) => on('pomodoro:state', cb),
   onPomodoroDone: (cb) => on('pomodoro:done', cb),
+
+  /* --- 在场状态（系统空闲联动）：→ 桌宠安静 / 打盹 / 回归打招呼 --- */
+  presenceGet: () => ipcRenderer.invoke('presence:get'),   // 兜底拉取（启动 / 回焦）
+  onPresenceState: (cb) => on('presence:state', cb),
 });
