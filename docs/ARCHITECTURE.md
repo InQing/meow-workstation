@@ -210,15 +210,33 @@ complete(break) → 只通知 → phase = 'idle'
 
 ## 七、尺寸：`petMetrics()` 是唯一真理源
 
-主进程建窗、渲染层画布、沙漏尺寸、气泡与按钮栏的居中基准，**全部读同一个函数**：
+主进程建窗、渲染层画布、沙漏槽位、气泡与按钮栏的居中基准，**全部读同一个函数**：
 
 ```js
 petMetrics(scale) → { scale, padL, padR, catW, offsetX, offsetY, width, height, hourglass }
 ```
 
 - `scale` = 每格像素（4~16，默认 8）
-- 窗口宽 = `24×s + padL + padR`，其中 **padL 4.5 格**（站沙漏）/ **padR 1.75 格**
-- ⚠️ **左右留白不等宽，所以气泡和按钮栏必须按「猫的中线」居中，不能按窗口居中** —— 按窗口居中会整体右偏。CSS 里挂 `--padl` / `--padr` 实现。
+- 窗口宽 = `24×s + padL + padR`，其中 **padR 6.75 格**（站沙漏）/ **padL 1.75 格**
+- `hourglass` = 沙漏槽位，**正方形 6×6 格**（花环版是近正方构图 2547×2430，槽位跟着改方）
+- ⚠️ **左右留白不等宽，所以气泡和按钮栏必须按「猫的中线」居中，不能按窗口居中** —— 按窗口居中会整体偏。CSS 里挂 `--padl` / `--padr` 实现。
+
+### 番茄沙漏的几何与图层（`pet/hourglassArt.js` + `pet/pet.js`）
+
+沙漏外形不再是代码拼的三角，而是 `resources/沙漏花环-*.svg` 的矢量，由 `tools/gen-hourglass-art.js` 提取进 `pet/hourglassArt.js`（只存一份几何 + 三套配色，源图改了重跑脚本即可）。用 `Path2D` 回放而不是贴图：透明窗口上「不加 transform / transition / 动画」是硬规矩，canvas 只改像素内容、不新建合成层，而且任意缩放都清晰。
+
+⚠️ 原图把**花环和沙漏外壳画在同一条路径里**（`ring` 与 `frame` 数据完全相同），靠 `clipPath#hgClip`（= 沙漏外轮廓）切分。回放时必须自己补上这两步：
+
+- 画花环 = 填整条路径 + 挖掉轮廓
+- 画外壳 = 裁到轮廓 + 填整条路径（腔体在路径里本来就是镂空，沙正好从那儿透出来）
+
+图层从下往上：**沙**（裁在轮廓里，溢出部分被上层盖住）→ **静态层**（花环 + 木框 + 玻璃壁 + 叶片 + 米白贴纸描边；只在尺寸 / 配色变化时重画一次并缓存）→ 逐帧只 `drawImage`。
+
+贴纸描边不是逐条路径描的 —— 那样会把每片叶子内部也描一遍。做法是把静态层整只染成米白的剪影，沿 8 个方向各铺一遍再把本体压上去，只裹最外圈。
+
+**沙面高度不靠公式**：缩放时把「轮廓 − 木框」栅格化成小位图，逐行数出玻璃腔体宽度，攒成「累计面积 → 行号」的换算表（`buildSandProfile`）。剩余比例查表即得沙面高度 —— 玻璃是什么曲线都精确，也不用为每种形状另推公式。⚠️ 木框边缘的锯齿会在腔体上下留几行「一线宽」噪点，必须按最宽值过滤，否则腰部会定位错、沙面会飞到画布外。
+
+三态配色（`palette`）：专注 = 彩色 + 金沙；休息 = **沙漏本体不动、只把沙换成湖蓝 `#30ADCB`**；暂停 = 整只换成 `沙漏花环-4-墨绿单色.svg` 的墨绿单色。
 
 ### 漂移问题的根因（踩了三次才定位）
 
@@ -262,7 +280,7 @@ petMetrics(scale) → { scale, padL, padR, catW, offsetX, offsetY, width, height
   → renderer: mgw.pomodoroStart()
   → main: ipcMain 'pomodoro:start' → pomodoro.togglePause()
   → 250ms tick 广播 'pomodoro:state'
-  → pet: updateHourglass() 重画沙漏（上半沙 = sqrt(progress)）
+  → pet: updateHourglass() 重画沙漏（沙面高度查内腔面积表，见「番茄沙漏的几何与图层」）
   → 到点: complete() → 按摸鱼标记选奖励（摸鱼过则打折）→ save.patchSave(累加金币/券/好感) → Notification
         → 广播 'pomodoro:done'（带 reward + distracted；pet 播 happy + 结算台词，专注中唯一放行的气泡）
         → 自动 start('break')

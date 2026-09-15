@@ -3,7 +3,7 @@
  *   unset ELECTRON_RUN_AS_NODE && MGW_DISABLE_GPU=1 ./node_modules/electron/dist/electron.exe tools/pet-smoke.js
  *
  * 用途：
- *   - 番茄钟状态 → 左侧沙漏的显隐 / 暂停灰化 / 剩余时间小字
+ *   - 番茄钟状态 → 右侧沙漏的显隐 / 暂停换墨绿单色 / 剩余时间小字
  *   - 专注中气泡静默：工作时间不弹气泡，番茄完成结算放行
  *   - 专注中主动互动：只劝专注，超限「……」+ 扣好感，换番茄计数清零
  *   - 缩放（桌宠大小）→ 窗口尺寸、画布尺寸、持久化
@@ -135,6 +135,15 @@ async function js(code) {
 }
 
 let fails = 0;
+// Electron 在 Windows 上 stdout 经常接不住（从终端直接跑会一片空白），
+// 所以顺手把所有输出也收一份，末尾落到 tools/_smoke/result.txt —— 回看和 CI 都靠它。
+const report = [];
+const rawLog = console.log.bind(console);
+console.log = (...a) => {
+  report.push(a.map(String).join(' '));
+  rawLog(...a);
+};
+
 function check(name, ok, extra) {
   if (!ok) fails++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${extra != null ? '  → ' + extra : ''}`);
@@ -190,11 +199,11 @@ app.whenReady().then(async () => {
   const bootCanvas = await js(`(()=>{const c=document.getElementById('cat');return c.width+'x'+c.height+' css '+c.style.width+'x'+c.style.height;})()`);
   const bootBody = await js(`document.body.clientWidth + 'x' + document.body.clientHeight`);
   console.log('canvas:', bootCanvas, '/ body:', bootBody, '/ bounds:', JSON.stringify(win.getBounds()));
-  // 存档 petScale=10 → 窗口 303×350（petMetrics(10)：240 猫 + 45 左留白 + 18 右留白）
-  check('开机按存档尺寸建窗（10 格 → 303×350）', nearSize(bootBody, 303, 350), bootBody);
+  // 存档 petScale=10 → 窗口 326×350（petMetrics(10)：240 猫 + 18 左留白 + 68 右留白）
+  check('开机按存档尺寸建窗（10 格 → 326×350）', nearSize(bootBody, 326, 350), bootBody);
   check('--s 单位 = 10px', (await js(`getComputedStyle(document.documentElement).getPropertyValue('--s')`)).trim() === '10px');
   const hgCss0 = await js(`(()=>{const c=document.getElementById('hourglass-canvas');return c.style.width+'/'+c.style.height;})()`);
-  check('沙漏画布按 --s 排布（10 格 → 35×60）', hgCss0 === '35px/60px', hgCss0);
+  check('沙漏画布按 --s 排布（10 格 → 60×60 方槽）', hgCss0 === '60px/60px', hgCss0);
 
   /* ---- 1. 番茄跑起来：沙漏应出现并显示剩余时间 ---- */
   pushState({ phase: 'work', running: true, remaining: 900, duration: 1500, progress: 0.4 });
@@ -245,7 +254,7 @@ app.whenReady().then(async () => {
     JSON.stringify(bubPenalized));
 
   /* ---- 1b. 布局基准：气泡 / 按钮栏挂的是「猫」的中线，不是窗口中线 ---- */
-  // 左右留白不等宽（左边 4.5 格站沙漏、右边 1.75 格），按窗口居中会整体往右偏。
+  // 左右留白不等宽（右边 6.75 格站沙漏、左边 1.75 格），按窗口居中会整体偏。
   // ⚠️ 必须等沙漏 / 气泡都渲染出来再量：它们是 display:none 时矩形全是 0。
   // ⚠️ 专注中气泡被 1a 的闸门静默，这里先切到休息态（沙漏同样可见）再量
   pushState({ phase: 'break', running: true, remaining: 240, duration: 300, progress: 0.2 });
@@ -260,21 +269,22 @@ app.whenReady().then(async () => {
     const mid = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return Math.round(r.left + r.width / 2); };
     const hg = document.getElementById('hourglass').getBoundingClientRect();
     return JSON.stringify({ W, padl, padr, catMid: Math.round(padl + (W - padr - padl) / 2),
-      actionsMid: mid('actions'), bubbleMid: mid('bubble'), hgMid: mid('hourglass'), hgLeft: Math.round(hg.left) });
+      actionsMid: mid('actions'), bubbleMid: mid('bubble'), hgMid: mid('hourglass'), hgRight: Math.round(hg.right) });
   })()`));
   console.log('layout:', JSON.stringify(layout));
   check('按钮栏对齐猫的中线（不按窗口居中）', Math.abs(layout.actionsMid - layout.catMid) <= 2,
     `actions ${layout.actionsMid} vs cat ${layout.catMid}`);
   check('气泡对齐猫的中线', Math.abs(layout.bubbleMid - layout.catMid) <= 2,
     `bubble ${layout.bubbleMid} vs cat ${layout.catMid}`);
-  check('沙漏贴在左侧留白里（居中于左留白，不压猫）',
-    layout.hgLeft === 0 && Math.abs(layout.hgMid - layout.padl / 2) <= 2,
-    `left ${layout.hgLeft} / mid ${layout.hgMid} / padL ${layout.padl}`);
+  check('沙漏贴在右侧留白里（居中于右留白，不压猫）',
+    layout.hgRight === layout.W && Math.abs(layout.hgMid - (layout.W - layout.padr / 2)) <= 2,
+    `right ${layout.hgRight} / W ${layout.W} / mid ${layout.hgMid} / padR ${layout.padr}`);
 
   /* ---- 1c. 沙漏绘制：按画布像素验「上下沙量」（老大报的"下面积得快"） ---- */
-  // 直接把 canvas 像素数出来：橙色 = 沙，按中腰分上下两半。
-  // 期望「下半 / 上半」= 已落 / 剩余 —— 旧版下半高度反解错（q=10% 画成 53% 满），
-  // 这里 p=0.5 会测出 1.83、p=0.9 会测出 0.59，肉眼就是"下面涨得比上面漏得快"。
+  // 直接把 canvas 像素数出来：金色 = 沙，按画布中线分上下两半。
+  // ⚠️ 花环里也散着金色浆果/闪光，会被一起数进来，所以断言一律走「差值」：
+  //    拿 p=1 / p=0 两个端点把固定装饰减掉，剩下的才是真正的沙。
+  //    这样不用把任何几何常数写死在测试里 —— 玻璃换成曲线、槽位换成方形都还成立。
   const measureSand = async (progress) => {
     pushState({ phase: 'work', running: true, remaining: Math.round(1500 * (1 - progress)), duration: 1500, progress });
     await wait(160);
@@ -291,29 +301,31 @@ app.whenReady().then(async () => {
         if (isSand(i)) { if (y < mid) up++; else dn++; }
         else if (d[i + 3] > 40 && d[i] > 225 && d[i + 1] > 218 && d[i + 2] > 200) halo++;
       }
-      // 下仓沙面：从腰往下逐行数沙像素，第一行「宽度 > 10」就是沙堆顶
-      // （沙流只有 3px 宽，被阈值滤掉）。高度不受轮廓线啃边影响，比数面积稳。
-      let yTop = -1;
-      for (let y = mid + 1; y < H; y++) {
-        let cnt = 0;
-        for (let x = 0; x < W; x++) if (isSand((y * W + x) * 4)) cnt++;
-        if (cnt > 10) { yTop = y; break; }
-      }
-      // 几何常数与产品代码一致（bot = 0.97H、lower = 0.47H）→ 沙面高度比 d/lower
-      const dTop = yTop < 0 ? -1 : +(((H * 0.97) - yTop) / (H * 0.47)).toFixed(3);
-      return JSON.stringify({ up, dn, halo, ratio: +(dn / Math.max(1, up)).toFixed(3), W, H, dTop });
+      return JSON.stringify({ up, dn, halo, ratio: +(dn / Math.max(1, up)).toFixed(3), W, H });
     })()`));
   };
 
-  const m50 = await measureSand(0.5);   // 番茄跑一半 → 沙还剩一半
-  console.log('[sand 剩余50%]', JSON.stringify(m50));
-  check('沙漏上下沙量守恒（剩余 50% → 约 1:1）', Math.abs(m50.ratio - 1) <= 0.2, 'ratio ' + m50.ratio);
-  check('轮廓有米白衬底（深色主题下看得见）', m50.halo > 30, 'halo px ' + m50.halo);
-  check('下仓沙面按面积反解（剩余 50% → d/lower ≈ 0.293）', Math.abs(m50.dTop - 0.293) <= 0.06, 'dTop ' + m50.dTop);
+  const mFull = await measureSand(1);    // 上半仓满、下半仓空
+  const mEmpty = await measureSand(0);   // 上半仓空、下半仓满
+  const m50 = await measureSand(0.5);    // 番茄跑一半 → 沙还剩一半
+  const m25 = await measureSand(0.75);   // 番茄还剩 1/4
+  console.log('[sand 满]', JSON.stringify(mFull), '/ [sand 空]', JSON.stringify(mEmpty));
+  console.log('[sand 剩余50%]', JSON.stringify(m50), '/ [sand 剩余25%]', JSON.stringify(m25));
 
-  const m25 = await measureSand(0.75);  // 已落 75%
-  console.log('[sand 剩余25%]', JSON.stringify(m25));
-  check('下仓沙面按面积反解（剩余 25% → d/lower ≈ 0.5）', Math.abs(m25.dTop - 0.5) <= 0.06, 'dTop ' + m25.dTop);
+  // 端点相减 = 把固定的花环装饰剔掉，剩下的比例才对得上进度
+  const part = (v, lo, hi) => +((v - lo) / Math.max(1, hi - lo)).toFixed(3);
+  check('上半仓沙量 = 剩余比例（剩 50% → 约一半）', Math.abs(part(m50.up, mEmpty.up, mFull.up) - 0.5) <= 0.06,
+    'frac ' + part(m50.up, mEmpty.up, mFull.up));
+  check('上半仓沙量 = 剩余比例（剩 25% → 约 1/4）', Math.abs(part(m25.up, mEmpty.up, mFull.up) - 0.25) <= 0.06,
+    'frac ' + part(m25.up, mEmpty.up, mFull.up));
+  check('下半仓沙量 = 已落比例（落 50% → 约一半）', Math.abs(part(m50.dn, mFull.dn, mEmpty.dn) - 0.5) <= 0.06,
+    'frac ' + part(m50.dn, mFull.dn, mEmpty.dn));
+  check('下半仓沙量 = 已落比例（落 75% → 约 3/4）', Math.abs(part(m25.dn, mFull.dn, mEmpty.dn) - 0.75) <= 0.06,
+    'frac ' + part(m25.dn, mFull.dn, mEmpty.dn));
+  // 下仓天生比上仓大（原图下肚就画得大一圈），守恒比不是 1 而是约 1.2。
+  // 这条挡的是「下面涨得比上面漏得快」—— 旧版下半反解错时会飙到 1.8 以上。
+  check('沙漏上下沙量守恒（不出现下仓暴涨）', m50.ratio > 0.9 && m50.ratio < 1.6, 'ratio ' + m50.ratio);
+  check('贴纸米白描边（深色主题下看得见）', m50.halo > 30, 'halo px ' + m50.halo);
 
   /* ---- 1d. 专注中主动互动：先劝专注，太多次才不理 ---- */
   // 此时仍是 work+running（1c 最后一次 measureSand 推的状态），计数从 0 开始
@@ -502,11 +514,11 @@ app.whenReady().then(async () => {
   console.log('resize ipc calls:', JSON.stringify(resizes));
   console.log('saved petScale:', SAVE.settings.petScale);
   check('拖动后变大（10 → 13）', scaleAfter === 13, scaleBefore + ' → ' + scaleAfter);
-  check('窗口跟着变（13 格 → 394×455）', nearSize(bodyAfter, 394, 455), bodyAfter);
+  check('窗口跟着变（13 格 → 423×455）', nearSize(bodyAfter, 423, 455), bodyAfter);
   check('尺寸已落盘 settings.petScale', SAVE.settings.petScale === 13, SAVE.settings.petScale);
   check('--s 同步', (await js(`getComputedStyle(document.documentElement).getPropertyValue('--s')`)).trim() === '13px');
   const hgCss13 = await js(`(()=>{const c=document.getElementById('hourglass-canvas');return c.style.width+'/'+c.style.height;})()`);
-  check('沙漏画布跟着缩放（13 格 → 46×78）', hgCss13 === '46px/78px', hgCss13);
+  check('沙漏画布跟着缩放（13 格 → 78×78）', hgCss13 === '78px/78px', hgCss13);
   const tip = await js(`(()=>{const e=document.getElementById('size-tip');return JSON.stringify({hidden:e.classList.contains('hidden'),text:e.textContent});})()`);
   console.log('size tip:', tip);
   check('拖动时显示实时数值', tip.includes('大小 13'), tip);
@@ -650,5 +662,5 @@ app.whenReady().then(async () => {
 
   printLogs();
   console.log(fails === 0 ? 'ALL PASS' : fails + ' FAILED');
-  app.exit(fails === 0 ? 0 : 1);
-}).catch((err) => { console.error('pet smoke failed:', err); printLogs(); app.exit(2); });
+  fs.writeFileSync(path.join(OUT, 'result.txt'), report.join('\r\n') + '\r\n', 'utf8');
+  app.exit(f

@@ -3,7 +3,7 @@
  * ⚠️ 尺寸全部走 --s（一格素材的像素数），改 --s 就能整体缩放：
  *    窗口尺寸由 pet.js 按 config.petMetrics() 算出，并同步给主进程 setBounds。
  *
- * ⚠️ 布局基准：左右留白不等宽（左边站番茄沙漏），所以气泡和按钮栏挂在
+ * ⚠️ 布局基准：左右留白不等宽（右边站番茄沙漏），所以气泡和按钮栏挂在
  *    --padl / --padr 之间居中 —— 那是「猫」的中线，不是窗口的中线。
  *    别改回 left:0; right:0，那样会整体往右偏。
  *
@@ -15,7 +15,7 @@
  *      （拖动漂移的主因已在主进程修掉：pet:move 每帧用 setBounds 把宽高钉死；
  *        样式这边是第二道保险，别再往回加动效。）
  */
-:root { --s: 8px; --padl: 36px; --padr: 14px; }   /* 默认 8 格 → 窗口 242×280 */
+:root { --s: 8px; --padl: 14px; --padr: 54px; }   /* 默认 8 格 → 窗口 260×280 */
 
 html, body {
   margin: 0;
@@ -63,11 +63,11 @@ body.resizing { cursor: nwse-resize; }
 
 .bubble.hidden { display: none; }
 
-/* 番茄沙漏：站左侧留白，竖直摆放（气泡与任务进度条曾经挤在头顶，改成左右分家） */
+/* 番茄沙漏：站右侧留白，竖直摆放（气泡与任务进度条曾经挤在头顶，改成左右分家） */
 .hourglass {
   position: absolute;
-  left: 0;
-  width: var(--padl);
+  right: 0;
+  width: var(--padr);
   top: calc(var(--s) * 14.5);
   display: flex;
   flex-direction: column;
@@ -80,7 +80,7 @@ body.resizing { cursor: nwse-resize; }
 
 .hourglass canvas {
   display: block;
-  width: calc(var(--s) * 3.5);
+  width: calc(var(--s) * 6);
   height: calc(var(--s) * 6);
 }
 
@@ -93,7 +93,7 @@ body.resizing { cursor: nwse-resize; }
   border-radius: calc(var(--s) * 0.75);
   color: #3a2a1e;
   font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
-  font-size: calc(var(--s) * 1.1);
+  font-size: calc(var(--s) * 1.4);
   font-variant-numeric: tabular-nums;
   line-height: 1.25;
   white-space: nowrap;

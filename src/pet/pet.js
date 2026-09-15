@@ -327,22 +327,33 @@
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  /* ---------------- 番茄沙漏（站在猫的左侧留白里） ----------------
-   * 沙漏的隐喻：上半的沙 = 剩余时间，漏完即到点。
-   * 用 canvas 而不是 CSS 拼三角 —— 透明窗口上「不加 transform / transition / 动画」
-   * 是硬规矩，canvas 只改像素内容、不会新建合成层，零风险。
-   * 暂停：沙子静止 + 整体退色（比"凭空消失"更能说明是暂停，而不是这局结束了）。
+  /* ---------------- 番茄沙漏（站在猫右侧的方形槽位里） ----------------
+   * 沙漏的隐喻不变：上半的沙 = 剩余时间，漏完即到点。
+   * 但外形换成了 resources/沙漏花环-*.svg 的矢量（提取见 hourglassArt.js），
+   * 木框 / 玻璃曲线 / 花环都是原图的几何，用 canvas 回放而不是贴图 ——
+   * 透明窗口上「不加 transform / transition / 动画」是硬规矩，canvas 只改像素内容、
+   * 不新建合成层，零风险；而且任意缩放都清晰。
+   *
+   * 图层（从下往上）：
+   *   ① 沙      裁在沙漏轮廓里，沙量由剩余时间定；暂停时整只换墨绿单色版
+   *   ② 静态层  花环 + 木框 + 玻璃壁 + 叶片，压住沙的溢出边（尺寸/配色变了才重画一次）
+   * 米白贴纸描边一起烘在静态层里：深色壁纸/主题下靠它认出轮廓，浅色壁纸交给图形本身的深色。
+   *
+   * ⚠️ 沙面高度由「轮廓减木框」逐行栅格化反解（buildSandProfile），
+   *    不依赖任何三角公式 —— 玻璃是曲线也能精确换算「剩余比例 → 沙面高度」。
    */
+  const HG_ART = window.MGW_HG_ART;
+  const HG_READY = !!(HG_ART && HG_ART.glass && HG_ART.art && HG_ART.palette);
+  if (!HG_READY) console.error('[pet] hourglassArt.js 没加载，番茄沙漏不可用');
 
-  const HG_SAND = { work: '#f2994a', break: '#4a90d9' };
-  const HG_DIM = '#b9ada1';      // 暂停：沙子退色
-  // 轮廓画两遍：先铺一层米白粗线当衬底，再用深棕细线压中线。
-  // 单色线在透明窗口上必糊 —— 深色主题吃掉深棕（老大在 VSCode dark 下只看得见橙沙），
-  // 浅色壁纸吃掉米白；两色叠着画才能「深色背景看见白边、浅色背景看见棕线」。
-  const HG_INK = '#3a2a1e';                        // 主线：浅色背景靠它
-  const HG_HALO = 'rgba(255, 252, 245, 0.92)';     // 衬底：深色主题/壁纸靠它
-  const HG_DIM_INK = '#9c9187';                    // 暂停：主线退色
-  const HG_DIM_HALO = 'rgba(240, 234, 225, 0.72)'; // 暂停：衬底也压暗
+  const HG_GLASS = HG_READY ? new Path2D(HG_ART.glass) : null;  // 沙漏外轮廓
+  const HG_SHELL = HG_READY ? new Path2D(HG_ART.art) : null;    // 花环 + 外壳共用一条路径
+  const HG_M = HG_READY ? HG_ART.artMatrix : [1, 0, 0, 1, 0, 0];
+  const HG_B = HG_READY ? HG_ART.bounds : { x: 0, y: 0, w: 1, h: 1 };
+  const HG_DECO = HG_READY
+    ? HG_ART.deco.map((d) => ({ p: new Path2D(d.d), m: d.m, c: d.c }))  // c = [彩色, 墨绿]
+    : [];
+  const HG_HALO = 'rgba(255, 252, 245, 0.92)';   // 贴纸描边：深色壁纸/主题靠它
 
   const HG = {
     p: 1,                        // 剩余比例 0~1
@@ -350,8 +361,141 @@
     running: false,
     size: cfg.petMetrics(cfg.petSize.defaultScale).hourglass,
     ctx: null,
+    dpr: 1,
+    profile: null,               // 内腔逐行面积表（缩放时重算）
+    still: null,                 // 静态层缓存
+    stillKey: '',
     timer: 0,
   };
+
+  /** 把整张图（花环 + 沙漏）的包围盒等比放进 W×H 槽位 */
+  function hgLayout(W, H) {
+    const k = Math.min(W / HG_B.w, H / HG_B.h);
+    return { k, ox: (W - HG_B.w * k) / 2 - HG_B.x * k, oy: (H - HG_B.h * k) / 2 - HG_B.y * k };
+  }
+
+  /** 内腔剖面：轮廓「减去」木框 = 玻璃腔体，逐行数宽度，攒出「面积 → 沙面高度」的换算表。
+   *  有了逐行面积，玻璃是什么曲线都能精确反解，不需要任何三角公式。 */
+  function buildSandProfile(W, H) {
+    const SS = 4;                     // 超采样：腔体最窄处只有一两像素，不放大测不准
+    const w = W * SS, h = H * SS;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const c = cv.getContext('2d');
+    const L = hgLayout(W, H);
+    c.translate(L.ox * SS, L.oy * SS);
+    c.scale(L.k * SS, L.k * SS);
+    c.fillStyle = '#000';
+    c.fill(HG_GLASS);
+    c.globalCompositeOperation = 'destination-out';
+    c.save();
+    c.transform(HG_M[0], HG_M[1], HG_M[2], HG_M[3], HG_M[4], HG_M[5]);
+    c.fill(HG_SHELL);                 // 木框本体含花环，但轮廓之外的部分本来就被裁掉了
+    c.restore();
+    c.globalCompositeOperation = 'source-over';
+
+    const d = c.getImageData(0, 0, w, h).data;
+    const rows = new Array(h).fill(0);
+    const cxs = new Array(h).fill(0);
+    for (let y = 0; y < h; y++) {
+      let n = 0, x0 = -1, x1 = -1;
+      for (let x = 0; x < w; x++) {
+        if (d[(y * w + x) * 4 + 3] > 100) { n++; if (x0 < 0) x0 = x; x1 = x; }
+      }
+      if (n) { rows[y] = n / SS; cxs[y] = (x0 + x1) / 2 / SS; }
+    }
+
+    // 木框边缘的锯齿会在腔体上下各留几行「一线宽」噪点，按最宽值滤掉，
+    // 否则「内腔顶」会被钉在画布最上面、腰部也会定位错。
+    let maxW = 0;
+    for (let y = 0; y < h; y++) if (rows[y] > maxW) maxW = rows[y];
+    const cut = maxW * 0.15;
+    let top = -1, bot = -1;
+    for (let y = 0; y < h; y++) if (rows[y] > cut) { if (top < 0) top = y; bot = y; }
+    if (top < 0) return null;
+    // 腰部 = 中间 70% 区间里最窄的一行（两端被上下木盖收窄，不能参与比较）
+    const lo = Math.round(top + (bot - top) * 0.15);
+    const hi = Math.round(bot - (bot - top) * 0.15);
+    let waist = lo, min = Infinity;
+    for (let y = lo; y <= hi; y++) if (rows[y] > cut && rows[y] < min) { min = rows[y]; waist = y; }
+
+    const upCum = new Array(h).fill(0);    // 上半仓：从 y 到腰部的沙面积
+    let acc = 0;
+    for (let y = waist; y >= top; y--) { acc += rows[y]; upCum[y] = acc; }
+    const lowCum = new Array(h).fill(0);   // 下半仓：从 y 到仓底的沙面积
+    acc = 0;
+    for (let y = bot; y >= waist; y--) { acc += rows[y]; lowCum[y] = acc; }
+    return {
+      ss: SS, top, bot, waist, upCum, lowCum,
+      upTotal: upCum[top], lowTotal: lowCum[waist], waistCx: cxs[waist],
+    };
+  }
+
+  /** 从 yStart 向 yEnd（递减方向）扫，取累计面积首次 ≥ target 的行 */
+  function sandSurfaceY(cum, yStart, yEnd, target) {
+    for (let y = yStart; y >= yEnd; y--) if (cum[y] >= target) return y;
+    return yEnd;
+  }
+
+  /** 静态层：花环 + 木框 + 玻璃壁 + 叶片，外加一圈只裹在外侧的米白贴纸描边。
+   *  只在尺寸 / 配色变化时重画一次，逐帧只 drawImage。 */
+  function buildHourglassStill(W, H, pal, mono) {
+    const blank = () => {
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(W * HG.dpr));
+      cv.height = Math.max(1, Math.round(H * HG.dpr));
+      return cv;
+    };
+
+    // ① 图形本体
+    const body = blank();
+    const c = body.getContext('2d');
+    const L = hgLayout(W, H);
+    c.setTransform(HG.dpr, 0, 0, HG.dpr, 0, 0);
+    c.translate(L.ox, L.oy);
+    c.scale(L.k, L.k);
+    const fill = (path, m, color) => {
+      c.save();
+      c.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      c.fillStyle = color;
+      c.fill(path);
+      c.restore();
+    };
+
+    // 花环：art 这条路径把花环和沙漏外壳画在一起，填完再把沙漏形状挖掉（= 原图的 mask#ringMask）
+    fill(HG_SHELL, HG_M, pal.wreath);
+    c.globalCompositeOperation = 'destination-out';
+    c.fillStyle = '#000';
+    c.fill(HG_GLASS);
+    c.globalCompositeOperation = 'source-over';
+    // 沙漏外壳：裁到轮廓再填，腔体在 art 里本来就是镂空
+    c.save();
+    c.clip(HG_GLASS);
+    fill(HG_SHELL, HG_M, pal.shell);
+    c.restore();
+    // 叶片 / 浆果 / 闪光
+    for (const d of HG_DECO) fill(d.p, d.m, mono ? d.c[1] : d.c[0]);
+
+    // ② 染一份整只米白的剪影，用它铺外描边。
+    //    比逐条路径描边干净得多：只裹住整只沙漏的轮廓，不会把每片叶子的内部也描一遍。
+    const tint = blank();
+    const t = tint.getContext('2d');
+    t.drawImage(body, 0, 0);
+    t.globalCompositeOperation = 'source-in';
+    t.fillStyle = HG_HALO;
+    t.fillRect(0, 0, tint.width, tint.height);
+
+    // ③ 剪影沿 8 个方向各铺一遍（偏移量 = 描边粗细），再把本体压上去
+    const out = blank();
+    const o = out.getContext('2d');
+    const pad = Math.max(1.2, W * 0.028) * HG.dpr;
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI / 4) * i;
+      o.drawImage(tint, Math.cos(a) * pad, Math.sin(a) * pad, out.width, out.height);
+    }
+    o.drawImage(body, 0, 0);
+    return out;
+  }
 
   function fitHourglass() {
     const dpr = window.devicePixelRatio || 1;
@@ -362,102 +506,68 @@
     hgCanvas.style.width = w + 'px';
     hgCanvas.style.height = h + 'px';
     HG.ctx = hgCanvas.getContext('2d');
-    HG.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    HG.dpr = dpr;
+    HG.profile = HG_READY ? buildSandProfile(w, h) : null;
+    HG.stillKey = '';                 // 尺寸变了，静态层必须重画
     drawHourglass();
   }
 
   function drawHourglass() {
     const ctx = HG.ctx;
-    if (!ctx) return;
+    if (!ctx || !HG_READY) return;
     const W = HG.size.w;
     const H = HG.size.h;
+    const prof = HG.profile;
+    ctx.setTransform(HG.dpr, 0, 0, HG.dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
+    if (!prof) return;
 
-    const cx = W / 2;
-    const top = H * 0.03;
-    const bot = H * 0.97;
-    const waist = H / 2;
-    const half = W * 0.42;
-    const lw = Math.max(1, W * 0.06);
-    const upper = waist - top;
-    const lower = bot - waist;
-    const sand = HG.running ? (HG_SAND[HG.phase] || HG_SAND.work) : HG_DIM;
-    const ink = HG.running ? HG_INK : HG_DIM_INK;
-    const halo = HG.running ? HG_HALO : HG_DIM_HALO;
-
-    /** 上下两个尖端相对的三角（外框路径，画两遍用） */
-    const traceGlass = () => {
-      ctx.beginPath();
-      ctx.moveTo(cx - half, top);
-      ctx.lineTo(cx + half, top);
-      ctx.lineTo(cx, waist);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(cx - half, bot);
-      ctx.lineTo(cx + half, bot);
-      ctx.lineTo(cx, waist);
-      ctx.closePath();
-      ctx.stroke();
-    };
-
-    // ① 轮廓衬底（米白粗线）打在最底层：随后被沙盖住内侧，只在外侧留一圈亮边。
-    //    没有它，深色主题 / 深色壁纸下整个沙漏只剩橙色沙（老大在 VSCode dark 下看到的就是这样）。
-    //    ⚠️ 必须画在沙「之前」，否则粗线会啃掉沙的轮廓（实测 p=50% 时下仓少了两成像素）。
-    ctx.lineJoin = 'round';
-    const haloPad = Math.max(1.6, W * 0.08);
-    ctx.lineWidth = lw + haloPad * 2;
-    ctx.strokeStyle = halo;
-    traceGlass();
-
-    // ② 上半：剩余。沙量 ∝ 高度²（三角形面积），所以按 sqrt 映射 —— 漏沙节奏才对
-    if (HG.p > 0.002) {
-      const hh = upper * Math.sqrt(HG.p);
-      const hw = half * (hh / upper);
-      ctx.fillStyle = sand;
-      ctx.beginPath();
-      ctx.moveTo(cx - hw, waist - hh);
-      ctx.lineTo(cx + hw, waist - hh);
-      ctx.lineTo(cx, waist);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // ③ 下半：已落。沙面水平地往上堆，堆高 d 由「面积 = q × 满仓面积」反解：
-    //   下仓是上尖下宽的倒三角，距底 d 处半宽 = half*(1 - d/lower)；
-    //   沙堆是底半宽 half、顶半宽 hwTop 的梯形，面积 = (half + hwTop) * d。
-    //   代入 hwTop = half*(1 - d/lower)，面积 = half*lower*(2u - u²)（u = d/lower），
-    //   令它 = q*half*lower → u² - 2u + q = 0 → u = 1 - sqrt(1-q)。
-    //   ⚠️ 旧版写成 d = lower*sqrt(q)：q=10% 时会画成 53% 满，看着「下面涨得比上面漏得快」。
+    // 暂停 = 整只换成墨绿单色版（resources/沙漏花环-4-墨绿单色.svg）
+    const paused = !HG.running;
+    const key = paused ? 'pause' : (HG_ART.palette[HG.phase] ? HG.phase : 'work');
+    const pal = HG_ART.palette[paused ? 'pause' : key];
+    const L = hgLayout(W, H);
+    const Y = (y) => y / prof.ss;
+    const waistY = Y(prof.waist);
+    const botY = Y(prof.bot);
     const q = 1 - HG.p;
-    if (q > 0.002) {
-      const d = lower * (1 - Math.sqrt(Math.max(0, 1 - q)));
-      const hwTop = half * (1 - d / lower);
-      ctx.fillStyle = sand;
-      ctx.beginPath();
-      ctx.moveTo(cx - half, bot);
-      ctx.lineTo(cx + half, bot);
-      ctx.lineTo(cx + hwTop, bot - d);
-      ctx.lineTo(cx - hwTop, bot - d);
-      ctx.closePath();
-      ctx.fill();
-    }
 
-    // ④ 沙流：只有真的在漏的时候才画（相位抖动 ≈ 一粒粒往下落）
-    if (HG.running && HG.p > 0.002 && HG.p < 0.999) {
+    // ① 沙：裁在沙漏轮廓里 —— 溢出到木框下面的部分随后会被静态层盖住
+    ctx.save();
+    ctx.translate(L.ox, L.oy);
+    ctx.scale(L.k, L.k);
+    ctx.save();
+    ctx.clip(HG_GLASS);
+    ctx.setTransform(HG.dpr, 0, 0, HG.dpr, 0, 0);
+    ctx.fillStyle = pal.sand;
+    if (HG.p > 0.004) {
+      const y = Y(sandSurfaceY(prof.upCum, prof.waist, prof.top, HG.p * prof.upTotal));
+      ctx.fillRect(0, y, W, waistY - y + 1);
+    }
+    if (q > 0.004) {
+      const y = Y(sandSurfaceY(prof.lowCum, prof.bot, prof.waist, q * prof.lowTotal));
+      ctx.fillRect(0, y, W, botY - y + 1);
+    }
+    // 沙流：只有真的在漏的时候才画（相位抖动 ≈ 一粒粒往下落）
+    if (HG.running && HG.p > 0.004 && HG.p < 0.996) {
       const t = (Date.now() % 500) / 500;
-      ctx.strokeStyle = sand;
-      ctx.lineWidth = Math.max(1, lw * 0.7);
+      ctx.strokeStyle = pal.sand;
+      ctx.lineWidth = Math.max(1, W * 0.035);
       ctx.beginPath();
-      ctx.moveTo(cx, waist + 0.5);
-      ctx.lineTo(cx, waist + 3 + t * lower * 0.16);
+      ctx.moveTo(prof.waistCx, waistY);
+      ctx.lineTo(prof.waistCx, waistY + (botY - waistY) * (0.06 + 0.10 * t));
       ctx.stroke();
     }
+    ctx.restore();
+    ctx.restore();
 
-    // ⑤ 轮廓主线（深棕细线）压在沙上：浅色壁纸靠它认出轮廓
-    ctx.lineWidth = lw;
-    ctx.strokeStyle = ink;
-    traceGlass();
+    // ② 静态层（花环 + 木框 + 玻璃壁）压在沙上：腔体镂空，沙正好从那里透出来
+    const stillKey = W + 'x' + H + '|' + HG.dpr + '|' + key;
+    if (HG.stillKey !== stillKey) {
+      HG.still = buildHourglassStill(W, H, pal, paused);
+      HG.stillKey = stillKey;
+    }
+    ctx.drawImage(HG.still, 0, 0, W, H);
   }
 
   /** 播放中每 120ms 重画一次（沙子在漏）；暂停 / 隐藏时一次都不画 */
